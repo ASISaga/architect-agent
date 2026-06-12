@@ -30,44 +30,64 @@ else
 fi
 
 # ---------------------------------------------------------------------
-# 4. Clone the ecosystem (idempotent)
+# 4. Clone / update the ecosystem
+#
+# Repo list lives in repos.txt (one repo name per line, under ASISaga/).
+# Each repo is either cloned fresh, or — if it already exists — updated
+# only when it is safe to do so: clean working tree, on a branch
+# (not detached HEAD), and no commits ahead of upstream. Anything else
+# is left untouched and reported, never silently overwritten or skipped
+# without explanation.
 # ---------------------------------------------------------------------
 mkdir -p ~/ASISaga
 cd ~/ASISaga
 
-REPOS=(
-  agent-operating-system
-  architect-agent
-  purpose-agent
-  leadership-agent
-  ceo-agent
-  cfo-agent
-  cto-agent
-  cso-agent
-  cmo-agent
-  aos-kernel
-  aos-intelligence
-  aos-infrastructure
-  aos-dispatcher
-  aos-realm-of-agents
-  aos-mcp-servers
-  aos-client-sdk
-  business-infinity
-  boardroom
-  mind.asisaga.com
-)
+while IFS= read -r repo; do
+  [ -z "$repo" ] && continue
 
-for repo in "${REPOS[@]}"; do
-  if [ -d "$repo" ]; then
-    echo "Updating $repo"
-    (cd "$repo" && git fetch --quiet && git pull --quiet --ff-only) || \
-      echo "  (skip — local changes or detached HEAD)"
-  else
+  if [ ! -d "$repo" ]; then
     echo "Cloning $repo"
     gh repo clone "ASISaga/$repo" "$repo" --quiet || \
-      echo "  (skip — repo not found or inaccessible)"
+      echo "  FAILED to clone $repo (not found or inaccessible)"
+    continue
   fi
-done
+
+  if [ ! -d "$repo/.git" ]; then
+    echo "  $repo exists but is not a git repo — leaving as-is"
+    continue
+  fi
+
+  (
+    cd "$repo"
+
+    branch="$(git symbolic-ref --short -q HEAD || true)"
+    if [ -z "$branch" ]; then
+      echo "  $repo: detached HEAD — leaving as-is"
+      exit 0
+    fi
+
+    if [ -n "$(git status --porcelain)" ]; then
+      echo "  $repo: uncommitted local changes — leaving as-is"
+      exit 0
+    fi
+
+    git fetch --quiet
+
+    ahead="$(git rev-list --count "@{u}..HEAD" 2>/dev/null || echo 0)"
+    if [ "$ahead" != "0" ]; then
+      echo "  $repo: $ahead unpushed commit(s) on $branch — leaving as-is"
+      exit 0
+    fi
+
+    behind="$(git rev-list --count "HEAD..@{u}" 2>/dev/null || echo 0)"
+    if [ "$behind" = "0" ]; then
+      echo "  $repo: up to date"
+    else
+      git merge --ff-only "@{u}" --quiet
+      echo "  $repo: updated ($behind commit(s))"
+    fi
+  )
+done < /opt/architect/repos.txt
 
 # agent-operating-system carries submodules — sync them too
 if [ -d agent-operating-system/.git ]; then
