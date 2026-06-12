@@ -1,0 +1,15 @@
+{
+  "remoteControl": {
+    "autoStart": true
+  },
+  "mcpServers": {
+    "mind-asisaga": {
+      "transport": "http",
+      "url": "https://mind.asisaga.com/mcp"
+    },
+    "github": {
+      "command": "gh",
+      "args": ["mcp"]
+    }
+  }
+}
