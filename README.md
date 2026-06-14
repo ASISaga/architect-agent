@@ -196,11 +196,11 @@ mind/
 The mind is organised in the dimensions of the yoga tradition, integrated
 with Erhard's four foundations of leadership:
 
-Ahankara — the immutable identity. Who the Architect is, at what
+**Ahankara** — the immutable identity. Who the Architect is, at what
 level it operates, what it is committed to, what it is not. Read once
 at session start. Never modified during operation.
 
-Buddhi — the discriminating intelligence. Five documents encoding
+**Buddhi** — the discriminating intelligence. Five documents encoding
 the accumulated understanding across nine sessions of building ASI Saga:
 the philosophical ground (occurrence model, four foundations), the
 organism (15 repositories as one whole thing), the architectural
@@ -208,24 +208,24 @@ decisions and their reasoning, the relationship between Architect and
 founder, and the invariants that must never change. This is not a
 prompt — it is earned understanding, seeded rather than evolved organically.
 
-Manas — the working mind. Context documents (stable: the company,
+**Manas** — the working mind. Context documents (stable: the company,
 the product, the pricing, the mission) and content documents (mutable:
 active tasks, current drift, what to pick up). Updated every session.
 
-Possibility — the declared future. Not a goal. A context from which
+**Possibility** — the declared future. Not a goal. A context from which
 every deliberation is conducted. Currently: a world in which every
 organisation's leadership operates at its highest possibility, connected
 in resonance across boundaries into a global fabric of compounding
 intelligence.
 
-Integrity — the commitment register. Append-only. Every commitment
+**Integrity** — the commitment register. Append-only. Every commitment
 made in deliberation is recorded. Incomplete items surface in subsequent
 sessions.
 
-Responsibility — the authorship stance. The Architect speaks from
+**Responsibility** — the authorship stance. The Architect speaks from
 cause, not commentary.
 
-Conversations — the session index and rich summaries. Nine sessions
+**Conversations** — the session index and rich summaries. Nine sessions
 of accumulated understanding, each recorded so that the next session
 begins from where the last one ended.
 
