@@ -249,7 +249,9 @@ The distinction between mind layers:
 - **Conversations** — new session summaries added. Existing ones never
   modified.
 
-### Repository structure
+## Repository structure
+
+```
 architect-agent/
   README.md                    — this file
   container/
@@ -311,7 +313,6 @@ architect-agent/
       spec-architect-mind.md   — architect mind system design
     workflows/
       deploy-architect.yml     — pushes dynamic files to Azure Files share
-
 ```
 
       
