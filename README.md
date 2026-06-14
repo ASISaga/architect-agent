@@ -341,25 +341,27 @@ Two skills because two agents operate in this repository:
 - Claude Code (the architect runtime) reads `architect-claude/SKILL.md`
 - GitHub Copilot (the coding agent) reads `architect-copilot/SKILL.md`
 
-### The two workflows
+---
 
-aos-infra — builds and deploys infrastructure
+## The two workflows
 
-build-architect.yml — triggered when Dockerfile.architect changes
-in aos-infra. Builds the container image and pushes to ACR. Runs rarely
+### `aos-infra` — builds and deploys infrastructure
+
+**`build-architect.yml`** — triggered when `Dockerfile.architect` changes
+in `aos-infra`. Builds the container image and pushes to ACR. Runs rarely
 — only when the OS, Node.js, Claude Code baseline, or gh CLI changes.
-Dispatches to architect-agent/deploy-architect.yml on completion.
+Dispatches to `architect-agent/deploy-architect.yml` on completion.
 
-deploy-architect-infra.yml — triggered when Bicep modules change
-in aos-infra. Deploys the Container App, Key Vault secrets, and Azure
+**`deploy-architect-infra.yml`** — triggered when Bicep modules change
+in `aos-infra`. Deploys the Container App, Key Vault secrets, and Azure
 Files share. No image rebuild.
 
-architect-agent — manages dynamic files
+### `architect-agent` — manages dynamic files
 
-deploy-architect.yml — triggered when any file in container/
-changes, or when dispatched by aos-infra after a new image build.
-Uploads entrypoint.sh, repos.txt, versions.env, CLAUDE.md,
-ARCHITECT-CONTEXT.md, and claude-settings.json to the Azure Files
+**`deploy-architect.yml`** — triggered when any file in `container/`
+changes, or when dispatched by `aos-infra` after a new image build.
+Uploads `entrypoint.sh`, `repos.txt`, `versions.env`, `CLAUDE.md`,
+`ARCHITECT-CONTEXT.md`, and `claude-settings.json` to the Azure Files
 share. No image rebuild. No Container App restart. Files take effect
 at next session start.
 
