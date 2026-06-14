@@ -139,13 +139,13 @@ the Claude mobile app → Code tab. The architect is available.
 Before any task, Claude Code reads two files placed at ~/ by the
 entrypoint:
 
-CLAUDE.md — the session ground. Who the Architect is, what to
-read from mind.asisaga.com before any task, the full ecosystem map,
+**`CLAUDE.md`** — the session ground. Who the Architect is, what to
+read from `mind.asisaga.com` before any task, the full ecosystem map,
 current state of the work, key invariants, and the session-end protocol.
 This is the first document Claude Code reads in every session. It is
 the difference between a capable tool and a grounded participant.
 
-ARCHITECT-CONTEXT.md — the technical reference. SDK versions,
+**`ARCHITECT-CONTEXT.md`** — the technical reference. SDK versions,
 the one failing test and its fix, pipeline patterns, Foundry registration,
 the drift table, ERPNext phases, session history. Everything a human
 member of the team would know from having been present across the nine
