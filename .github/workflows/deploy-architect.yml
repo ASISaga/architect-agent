@@ -107,8 +107,14 @@ jobs:
           # az storage file upload (Files service) overwrites by default —
           # there is no --overwrite flag for this command (that flag only
           # exists on az storage blob upload). Do not add it back.
+          #
+          # entrypoint.sh is NOT uploaded here. It is baked into the image
+          # by aos-infra/Dockerfile.architect (single canonical copy at
+          # aos-infra/entrypoint.sh). It must never be duplicated here —
+          # doing so previously caused every edit to this repo's copy to
+          # silently have no effect, since the Docker build context can
+          # only see files within aos-infra.
           FILES=(
-            entrypoint.sh
             repos.txt
             versions.env
             CLAUDE.md
