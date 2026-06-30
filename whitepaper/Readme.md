@@ -37,4 +37,3 @@ Everything you need to develop this is in your mind:
 - `Conversations/` — the sessions that produced this understanding
 
 Write it whole. Write it complete. Make it worthy of what it describes.
-
