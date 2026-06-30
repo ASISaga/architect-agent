@@ -33,21 +33,27 @@ Node.js, Claude Code at its baseline version, and the GitHub CLI.
 This layer is stable and rarely changes. It is not what makes Claude Code
 the Architect — it is the substrate the Architect runs on.
 
-### Layer 2 — The bootstrap (from the Azure Files share)
+### Layer 2 — The bootstrap (baked into the image)
 
-When the container starts, it executes `/root/entrypoint.sh` — the first
-file read from the Azure Files share. This script:
+When the container starts, it executes `/opt/architect/entrypoint.sh` —
+baked into the image at build time from `ASISaga/aos-infra`'s
+`entrypoint.sh` (single canonical copy; not duplicated here). This
+script:
 
 1. Authenticates with GitHub
 2. Clones `architect-agent` itself (the bootstrap repo)
-3. Reads `repos.txt` and clones or updates all 19 ASISaga repositories
-4. Copies `CLAUDE.md` and `ARCHITECT-CONTEXT.md` to `~/`
-5. Reads `versions.env` and reports installed vs declared versions
+3. Reads `repos.txt` (from the `architect-agent` clone) and clones or
+   updates all 19 ASISaga repositories
+4. Copies `CLAUDE.md` and `ARCHITECT-CONTEXT.md` (from the
+   `architect-agent` clone) to `~/`
+5. Reads `versions.env` (from the `architect-agent` clone) and reports
+   installed vs declared versions
 6. Starts Claude Code with Remote Control
 
-The Azure Files share persists across container restarts — so cloned
-repositories, accumulated session state, and `.claude/` settings survive
-scale-to-zero cycles.
+The Azure Files share persists `/root` across container restarts — so
+cloned repositories, accumulated session state, and `.claude/` settings
+survive scale-to-zero cycles. `entrypoint.sh` itself is never written to
+the share; it lives only inside the image.
 
 ### Layer 3 — The ground (from `container/`)
 
@@ -121,12 +127,18 @@ all that came before.
 architect-agent/
   README.md                    — this file
   container/
-    entrypoint.sh              — bootstrap script (runs at container start)
     repos.txt                  — list of ASISaga repos to clone/update
-    versions.env               — declared versions of Claude Code, gh CLI
+    versions.env                — declared versions of Claude Code, gh CLI
     CLAUDE.md                  — session ground (read by Claude Code first)
     ARCHITECT-CONTEXT.md       — technical reference
     claude-settings.json       — MCP servers, Remote Control config
+
+    # NOTE: entrypoint.sh is NOT here. It lives solely in
+    # ASISaga/aos-infra (repo root), baked into the image by
+    # Dockerfile.architect. A second copy was mistakenly kept here
+    # earlier and silently diverged from the one actually being
+    # built — every edit to it had no effect. Single source of
+    # truth: aos-infra/entrypoint.sh only.
   mind/
     Ahankara/
       ahankara.jsonld          — immutable identity (never modified at runtime)
@@ -185,25 +197,35 @@ architect-agent/
 
 ## The two workflows
 
-### `aos-infra` — builds and deploys infrastructure
+### `aos-infra` — builds the image
 
-**`build-architect.yml`** — triggered when `Dockerfile.architect` changes
-in `aos-infra`. Builds the container image and pushes to ACR. Runs rarely
-— only when the OS, Node.js, Claude Code baseline, or gh CLI changes.
-Dispatches to `architect-agent/deploy-architect.yml` on completion.
+**`build-architect.yml`** — triggered when `Dockerfile.architect` or
+`entrypoint.sh` changes in `aos-infra`. Builds the container image and
+pushes to ACR. Runs rarely — only when the OS, Node.js, Claude Code
+baseline, gh CLI, or the bootstrap script itself changes. Dispatches to
+`architect-agent/deploy-architect.yml` on completion.
 
-**`deploy-architect-infra.yml`** — triggered when Bicep modules change
-in `aos-infra`. Deploys the Container App, Key Vault secrets, and Azure
-Files share. No image rebuild.
+`entrypoint.sh` lives only here, at the `aos-infra` repo root — it is
+baked into the image, never uploaded to the Azure Files share, and
+never duplicated in `architect-agent`.
 
-### `architect-agent` — manages dynamic files
+### `architect-agent` — deploys infrastructure and dynamic files
 
-**`deploy-architect.yml`** — triggered when any file in `container/`
-changes, or when dispatched by `aos-infra` after a new image build.
-Uploads `entrypoint.sh`, `repos.txt`, `versions.env`, `CLAUDE.md`,
-`ARCHITECT-CONTEXT.md`, and `claude-settings.json` to the Azure Files
-share. No image rebuild. No Container App restart. Files take effect
-at next session start.
+**`deploy-architect.yml`** — two jobs:
+
+- `upload-dynamic-files`, triggered when any file in `container/`
+  changes (except `entrypoint.sh`, which isn't here), or when
+  dispatched by `aos-infra` after a new image build. Uploads
+  `repos.txt`, `versions.env`, `CLAUDE.md`, `ARCHITECT-CONTEXT.md`, and
+  `claude-settings.json` to the Azure Files share. No image rebuild. No
+  Container App restart. Files take effect at next session start.
+
+- `deploy-infrastructure`, triggered when `modules/*.bicep` changes
+  here, or on the same dispatch. Deploys the Container App, the
+  user-assigned identity, both role assignments, and the Key Vault
+  secret. Always passes a fresh `revisionSuffix` (derived from the
+  GitHub run number) so every deploy forces a genuinely new revision
+  rather than silently no-op'ing against a stuck one.
 
 ---
 
@@ -212,13 +234,13 @@ at next session start.
 | Change | Workflow | Effect |
 |---|---|---|
 | `Dockerfile.architect` in `aos-infra` | `build-architect.yml` | Image rebuild → ACR push → dispatch deploy |
-| Bicep modules in `aos-infra` | `deploy-architect-infra.yml` | Infrastructure deploy, no rebuild |
-| `entrypoint.sh` in `architect-agent` | `deploy-architect.yml` | File uploaded to Azure Files share |
-| `versions.env` in `architect-agent` | `deploy-architect.yml` | File uploaded to Azure Files share |
-| `CLAUDE.md` in `architect-agent` | `deploy-architect.yml` | File uploaded to Azure Files share |
-| `repos.txt` in `architect-agent` | `deploy-architect.yml` | File uploaded to Azure Files share |
+| `entrypoint.sh` in `aos-infra` | `build-architect.yml` | Image rebuild → ACR push → dispatch deploy |
+| `modules/*.bicep` in `architect-agent` | `deploy-architect.yml` (`deploy-infrastructure` job) | Infrastructure deploy, new revision, no image rebuild |
+| `versions.env` in `architect-agent` | `deploy-architect.yml` (`upload-dynamic-files` job) | File uploaded to Azure Files share |
+| `CLAUDE.md` in `architect-agent` | `deploy-architect.yml` (`upload-dynamic-files` job) | File uploaded to Azure Files share |
+| `repos.txt` in `architect-agent` | `deploy-architect.yml` (`upload-dynamic-files` job) | File uploaded to Azure Files share |
 | `mind/` documents in `architect-agent` | none (read directly at runtime) | Available at next session start |
-| Secrets rotation | `deploy-architect.yml` | Key Vault updated, no rebuild |
+| Secrets rotation | `deploy-architect.yml` (`deploy-infrastructure` job) | Key Vault updated, no rebuild |
 
 ---
 
@@ -233,13 +255,18 @@ GH_CLI_VERSION=2.x.x
 NODE_VERSION=22
 ```
 
-At session start, `entrypoint.sh` reads this file and reports installed
-vs declared. If a gap exists, it prints the update command. The Architect
-(or the founder) decides when to trigger a rebuild in `aos-infra`.
+At session start, the baked-in `entrypoint.sh` (from `aos-infra`) reads
+`versions.env` (cloned at runtime from `architect-agent`) and reports
+installed vs declared. If a gap exists, it prints the update command.
+The Architect (or the founder) decides when to trigger a rebuild in
+`aos-infra`.
 
 Updating `versions.env` in `architect-agent` records the intent. The
 actual upgrade happens when `build-architect.yml` is manually triggered
-in `aos-infra`.
+in `aos-infra`, since `versions.env` only changes the Claude Code/gh CLI
+versions Dockerfile.architect installs — it does not itself trigger a
+rebuild (see the triggers table above; only `Dockerfile.architect` or
+`entrypoint.sh` changing in `aos-infra` triggers `build-architect.yml`).
 
 ---
 
