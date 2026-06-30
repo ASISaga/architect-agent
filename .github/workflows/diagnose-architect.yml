@@ -119,6 +119,33 @@ jobs:
           fi
           echo ""
 
+      - name: Architect identity — Key Vault read access (runtime)
+        run: |
+          echo "## Architect identity Key Vault read access"
+          # Distinct from the check above: that one verifies the GitHub
+          # Actions deploy-time service principal can WRITE secrets.
+          # This checks whether id-architect — the identity the running
+          # Container App actually uses at runtime — can READ the
+          # secret it needs to start. These are two different
+          # identities; having one role says nothing about the other.
+          ID_PRINCIPAL_ID=$(az identity show \
+            --name id-architect \
+            --resource-group rg-aos-staging \
+            --query principalId -o tsv 2>/dev/null || true)
+          if [ -z "$ID_PRINCIPAL_ID" ]; then
+            echo "  ⚠️  id-architect managed identity not found — has the Container App been deployed yet?"
+          else
+            VAULT_ID=$(az keyvault show --name "${{ secrets.KEY_VAULT_NAME }}" --resource-group rg-aos-staging --query id -o tsv 2>/dev/null || true)
+            ROLES=$(az role assignment list --assignee "$ID_PRINCIPAL_ID" --scope "$VAULT_ID" --query "[].roleDefinitionName" -o tsv)
+            if [ -z "$ROLES" ]; then
+              echo "  ❌ id-architect has no roles on Key Vault — secret fetch will fail with 403 at container start"
+              echo "     Fix: az role assignment create --role \"Key Vault Secrets User\" --assignee $ID_PRINCIPAL_ID --scope $VAULT_ID"
+            else
+              echo "  ✅ Roles: $ROLES"
+            fi
+          fi
+          echo ""
+
       - name: Role assignment — Storage Account
         run: |
           echo "## Storage Account role check"
@@ -155,29 +182,27 @@ jobs:
             -o table || echo "  ❌ Repository 'aos/architect' not found in ACR"
           echo ""
 
-      - name: Container App managed identity — AcrPull role check
+      - name: Architect identity — AcrPull role check
         run: |
-          echo "## Container App managed identity role check"
-          # This checks the Container App's OWN system-assigned identity,
-          # not the GitHub Actions service principal. A revision will
-          # silently fail to create (latestRevision stays null) if this
-          # identity lacks AcrPull on the registry, even if the Bicep
-          # role assignment was deployed — it can take several minutes
-          # to propagate, and the platform does not surface this as a
-          # clear error on the Container App resource itself.
-          MI_PRINCIPAL_ID=$(az containerapp show \
-            --name architect \
+          echo "## Architect identity AcrPull role check"
+          # id-architect is the user-assigned identity used for BOTH
+          # ACR pull and Key Vault secret fetch (see architect-container-
+          # app.bicep). The Container App no longer uses a system-
+          # assigned identity — checking identity.principalId here would
+          # return nothing now that the identity type is UserAssigned only.
+          ID_PRINCIPAL_ID=$(az identity show \
+            --name id-architect \
             --resource-group rg-aos-staging \
-            --query identity.principalId -o tsv 2>/dev/null || true)
-          if [ -z "$MI_PRINCIPAL_ID" ] || [ "$MI_PRINCIPAL_ID" = "None" ]; then
-            echo "  ❌ Container App has no managed identity principalId — identity may not have provisioned"
+            --query principalId -o tsv 2>/dev/null || true)
+          if [ -z "$ID_PRINCIPAL_ID" ]; then
+            echo "  ⚠️  id-architect managed identity not found — has the Container App been deployed yet?"
           else
-            echo "  Managed identity principalId: $MI_PRINCIPAL_ID"
+            echo "  id-architect principalId: $ID_PRINCIPAL_ID"
             ACR_ID=$(az acr show --name acraosstagingerm2srfd --query id -o tsv)
-            ROLES=$(az role assignment list --assignee "$MI_PRINCIPAL_ID" --scope "$ACR_ID" --query "[].roleDefinitionName" -o tsv)
+            ROLES=$(az role assignment list --assignee "$ID_PRINCIPAL_ID" --scope "$ACR_ID" --query "[].roleDefinitionName" -o tsv)
             if [ -z "$ROLES" ]; then
-              echo "  ❌ No roles assigned to Container App identity on ACR — this is likely why latestRevision is null"
-              echo "     Fix: az role assignment create --role AcrPull --assignee $MI_PRINCIPAL_ID --scope $ACR_ID"
+              echo "  ❌ No roles assigned to id-architect on ACR — image pull will fail with 401 at container start"
+              echo "     Fix: az role assignment create --role AcrPull --assignee $ID_PRINCIPAL_ID --scope $ACR_ID"
             else
               echo "  ✅ Roles: $ROLES"
             fi

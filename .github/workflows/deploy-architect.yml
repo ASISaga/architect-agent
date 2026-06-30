@@ -239,4 +239,5 @@ jobs:
               acrLoginServer=acraosstagingerm2srfd.azurecr.io \
               acrName=acraosstagingerm2srfd \
               storageAccountName="${{ secrets.STORAGE_ACCOUNT_NAME }}" \
+              keyVaultName="${{ secrets.KEY_VAULT_NAME }}" \
               githubTokenSecretUri="${{ steps.uris.outputs.github_uri }}"
