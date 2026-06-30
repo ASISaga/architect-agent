@@ -26,6 +26,9 @@ param keyVaultName string
 @description('Key Vault secret URI for the architect GitHub token')
 param githubTokenSecretUri string
 
+@description('Revision suffix — change this to force a new revision (e.g. after fixing identity/config issues that an in-place update will not re-provision into the existing, possibly stuck, revision)')
+param revisionSuffix string = 'init'
+
 // ---------------------------------------------------------------------
 // User-assigned managed identity
 //
@@ -165,6 +168,7 @@ resource architectApp 'Microsoft.App/containerApps@2024-03-01' = {
       ]
     }
     template: {
+      revisionSuffix: revisionSuffix
       containers: [
         {
           name: 'architect'
