@@ -240,4 +240,5 @@ jobs:
               acrName=acraosstagingerm2srfd \
               storageAccountName="${{ secrets.STORAGE_ACCOUNT_NAME }}" \
               keyVaultName="${{ secrets.KEY_VAULT_NAME }}" \
-              githubTokenSecretUri="${{ steps.uris.outputs.github_uri }}"
+              githubTokenSecretUri="${{ steps.uris.outputs.github_uri }}" \
+              revisionSuffix="run${{ github.run_number }}"
