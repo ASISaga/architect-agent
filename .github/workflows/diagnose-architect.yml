@@ -1,0 +1,173 @@
+name: Diagnose Architect
+
+# On-demand diagnostic workflow for the architect Container App.
+# Run this whenever a deployment looks stuck, failed, or behaves
+# unexpectedly. Produces a single consolidated report covering:
+#   - Container App resource status and revision health
+#   - Recent deployment operations from the Activity Log
+#   - Console logs (entrypoint.sh stdout/stderr)
+#   - System logs (platform-level revision lifecycle events)
+#   - Role assignment checks on Key Vault and Storage Account
+#   - Secret hygiene check (same validation as deploy-architect.yml)
+#
+# This workflow only reads — it never modifies any resource.
+
+on:
+  workflow_dispatch:
+    inputs:
+      log_lines:
+        description: 'Number of log lines to fetch (console and system)'
+        required: false
+        default: '200'
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Secret hygiene check
+        run: |
+          echo "## Secret hygiene"
+          fail=0
+          for name in KEY_VAULT_NAME ARCHITECT_GITHUB_TOKEN STORAGE_ACCOUNT_NAME; do
+            val="${!name}"
+            trimmed="$(printf '%s' "$val" | tr -d '[:space:]')"
+            if [ -z "$trimmed" ]; then
+              echo "  ❌ $name is empty or unset"
+              fail=1
+            elif [ "$val" != "$trimmed" ]; then
+              echo "  ❌ $name has leading/trailing whitespace or a newline"
+              fail=1
+            else
+              echo "  ✅ $name looks clean"
+            fi
+          done
+          echo ""
+        env:
+          KEY_VAULT_NAME: ${{ secrets.KEY_VAULT_NAME }}
+          ARCHITECT_GITHUB_TOKEN: ${{ secrets.ARCHITECT_GITHUB_TOKEN }}
+          STORAGE_ACCOUNT_NAME: ${{ secrets.STORAGE_ACCOUNT_NAME }}
+
+      - name: Container App resource status
+        run: |
+          echo "## Container App resource"
+          az containerapp show \
+            --name architect \
+            --resource-group rg-aos-staging \
+            --query "{status:properties.runningStatus, provisioningState:properties.provisioningState, latestRevision:properties.latestRevisionName, fqdn:properties.configuration.ingress.fqdn}" \
+            -o jsonc || echo "  ❌ Container App 'architect' not found in rg-aos-staging"
+          echo ""
+
+      - name: Revision health
+        run: |
+          echo "## Revisions"
+          az containerapp revision list \
+            --name architect \
+            --resource-group rg-aos-staging \
+            --query "[].{name:name, active:properties.active, provisioningState:properties.provisioningState, healthState:properties.healthState, runningState:properties.runningState, createdTime:properties.createdTime}" \
+            -o table || echo "  ❌ Could not list revisions"
+          echo ""
+
+      - name: Recent deployment operations (Activity Log, last 2 hours)
+        run: |
+          echo "## Recent deployment operations"
+          az monitor activity-log list \
+            --resource-group rg-aos-staging \
+            --start-time "$(date -u -d '2 hours ago' +%Y-%m-%dT%H:%M:%SZ)" \
+            --query "[?contains(resourceId, 'architect')].{time:eventTimestamp, operation:operationName.localizedValue, status:status.localizedValue}" \
+            -o table || echo "  ❌ Could not fetch activity log"
+          echo ""
+
+      - name: Container Apps Environment status
+        run: |
+          echo "## Container Apps Environment"
+          az containerapp env show \
+            --name cae-aos-staging \
+            --resource-group rg-aos-staging \
+            --query "{provisioningState:properties.provisioningState, defaultDomain:properties.defaultDomain}" \
+            -o jsonc || echo "  ❌ Environment 'cae-aos-staging' not found"
+          echo ""
+
+      - name: Role assignment — Key Vault
+        run: |
+          echo "## Key Vault role check"
+          PRINCIPAL_ID=$(az ad sp show --id "${{ secrets.AZURE_CLIENT_ID }}" --query id -o tsv 2>/dev/null || true)
+          if [ -z "$PRINCIPAL_ID" ]; then
+            echo "  ⚠️  Could not resolve service principal — skipping"
+          else
+            VAULT_ID=$(az keyvault show --name "${{ secrets.KEY_VAULT_NAME }}" --resource-group rg-aos-staging --query id -o tsv 2>/dev/null || true)
+            if [ -z "$VAULT_ID" ]; then
+              echo "  ❌ Key Vault '${{ secrets.KEY_VAULT_NAME }}' not found"
+            else
+              ROLES=$(az role assignment list --assignee "$PRINCIPAL_ID" --scope "$VAULT_ID" --query "[].roleDefinitionName" -o tsv)
+              if [ -z "$ROLES" ]; then
+                echo "  ❌ No roles assigned on Key Vault"
+              else
+                echo "  ✅ Roles: $ROLES"
+              fi
+            fi
+          fi
+          echo ""
+
+      - name: Role assignment — Storage Account
+        run: |
+          echo "## Storage Account role check"
+          PRINCIPAL_ID=$(az ad sp show --id "${{ secrets.AZURE_CLIENT_ID }}" --query id -o tsv 2>/dev/null || true)
+          if [ -z "$PRINCIPAL_ID" ]; then
+            echo "  ⚠️  Could not resolve service principal — skipping"
+          else
+            ACCOUNT_ID=$(az storage account show --name "${{ secrets.STORAGE_ACCOUNT_NAME }}" --resource-group rg-aos-staging --query id -o tsv 2>/dev/null || true)
+            if [ -z "$ACCOUNT_ID" ]; then
+              echo "  ❌ Storage account '${{ secrets.STORAGE_ACCOUNT_NAME }}' not found"
+            else
+              ROLES=$(az role assignment list --assignee "$PRINCIPAL_ID" --scope "$ACCOUNT_ID" --query "[].roleDefinitionName" -o tsv)
+              if [ -z "$ROLES" ]; then
+                echo "  ❌ No roles assigned on Storage Account"
+              else
+                echo "  ✅ Roles: $ROLES"
+              fi
+            fi
+          fi
+          echo ""
+
+      - name: Console logs (entrypoint.sh output)
+        run: |
+          echo "## Console logs (last ${{ github.event.inputs.log_lines || '200' }} lines)"
+          az containerapp logs show \
+            --name architect \
+            --resource-group rg-aos-staging \
+            --type console \
+            --tail "${{ github.event.inputs.log_lines || '200' }}" \
+            --format text || echo "  ⚠️  No console logs available (container may not have started, or logs not yet flushed to Log Analytics)"
+          echo ""
+
+      - name: System logs (revision lifecycle events)
+        run: |
+          echo "## System logs (last ${{ github.event.inputs.log_lines || '200' }} lines)"
+          az containerapp logs show \
+            --name architect \
+            --resource-group rg-aos-staging \
+            --type system \
+            --tail "${{ github.event.inputs.log_lines || '200' }}" \
+            --format text || echo "  ⚠️  No system logs available"
+          echo ""
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Diagnostic complete"
+          echo "Review each section above. Common next steps:"
+          echo "  - If revision healthState is not 'Healthy': check console logs for where entrypoint.sh stalled"
+          echo "  - If role checks show ❌: grant the missing role via Azure portal IAM, then re-run"
+          echo "  - If secret hygiene shows ❌: re-set with printf '%s' \"value\" | gh secret set NAME --repo ASISaga/architect-agent"
+          echo "  - If Container App status is Running but Code tab shows no session: try claude login in the terminal first"
