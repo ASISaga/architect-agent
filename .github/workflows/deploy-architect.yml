@@ -78,6 +78,30 @@ jobs:
             exit 1
           fi
 
+      - name: Confirm caller can write to the file share via OAuth
+        run: |
+          # Azure Files OAuth (--auth-mode login) requires an explicit
+          # data-plane RBAC role on the storage account — being able to
+          # see the account (management-plane Reader/Contributor) is not
+          # enough. Fail early with a fix command rather than letting
+          # the upload fail mid-loop with a generic error.
+          PRINCIPAL_ID=$(az ad sp show --id "${{ secrets.AZURE_CLIENT_ID }}" --query id -o tsv 2>/dev/null || true)
+          if [ -z "$PRINCIPAL_ID" ]; then
+            echo "::warning::Could not resolve service principal for AZURE_CLIENT_ID — skipping role check."
+          else
+            ACCOUNT_ID=$(az storage account show --name "${{ secrets.STORAGE_ACCOUNT_NAME }}" --resource-group rg-aos-staging --query id -o tsv)
+            HAS_ROLE=$(az role assignment list \
+              --assignee "$PRINCIPAL_ID" \
+              --scope "$ACCOUNT_ID" \
+              --query "[?roleDefinitionName=='Storage File Data Privileged Contributor' || roleDefinitionName=='Storage File Data SMB Share Contributor' || roleDefinitionName=='Owner' || roleDefinitionName=='Contributor']" \
+              -o tsv)
+            if [ -z "$HAS_ROLE" ]; then
+              echo "::error::Service principal lacks a data-plane role to write to file share on '${{ secrets.STORAGE_ACCOUNT_NAME }}'. Grant it with:"
+              echo "az role assignment create --role \"Storage File Data Privileged Contributor\" --assignee ${{ secrets.AZURE_CLIENT_ID }} --scope $ACCOUNT_ID"
+              exit 1
+            fi
+          fi
+
       - name: Upload dynamic files to Azure Files share
         run: |
           # az storage file upload (Files service) overwrites by default —
@@ -98,7 +122,8 @@ jobs:
               --share-name architect-home \
               --source "container/$f" \
               --path "$f" \
-              --auth-mode login
+              --auth-mode login \
+              --enable-file-backup-request-intent
           done
           echo "All dynamic files uploaded"
 
