@@ -60,7 +60,6 @@ jobs:
               --share-name architect-home \
               --source "container/$f" \
               --path "$f" \
-              --overwrite \
               --auth-mode login
           done
           echo "All dynamic files uploaded"
