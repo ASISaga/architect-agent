@@ -14,11 +14,6 @@ name: Diagnose Architect
 
 on:
   workflow_dispatch:
-    inputs:
-      log_lines:
-        description: 'Number of log lines to fetch (console and system)'
-        required: false
-        default: '200'
 
 permissions:
   id-token: write
@@ -221,23 +216,23 @@ jobs:
 
       - name: Console logs (entrypoint.sh output)
         run: |
-          echo "## Console logs (last ${{ github.event.inputs.log_lines || '200' }} lines)"
+          echo "## Console logs (last 300 lines)"
           az containerapp logs show \
             --name architect \
             --resource-group rg-aos-staging \
             --type console \
-            --tail "${{ github.event.inputs.log_lines || '200' }}" \
+            --tail "300" \
             --format text || echo "  ⚠️  No console logs available (container may not have started, or logs not yet flushed to Log Analytics)"
           echo ""
 
       - name: System logs (revision lifecycle events)
         run: |
-          echo "## System logs (last ${{ github.event.inputs.log_lines || '200' }} lines)"
+          echo "## System logs (last 300 lines)"
           az containerapp logs show \
             --name architect \
             --resource-group rg-aos-staging \
             --type system \
-            --tail "${{ github.event.inputs.log_lines || '200' }}" \
+            --tail "300" \
             --format json || echo "  ⚠️  No system logs available"
           echo ""
 

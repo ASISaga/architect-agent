@@ -1,0 +1,146 @@
+name: Test Architect Session
+
+# On-demand workflow that:
+# 1. Ensures the architect Container App has a running revision
+# 2. Execs into it and runs a diagnostic shell session
+# 3. Exits — Claude Code exits, container exits, platform scales to zero
+#
+# This tests the full cold-start → session → clean-exit lifecycle
+# without needing the Claude mobile app.
+#
+# Run via: Actions → Test Architect Session → Run workflow
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  test-session:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Check revision state
+        id: revision
+        run: |
+          STATE=$(az containerapp revision list \
+            --name architect \
+            --resource-group rg-aos-staging \
+            --query "[0].{health:properties.healthState, running:properties.runningState}" \
+            -o json)
+          echo "Revision state: $STATE"
+          HEALTH=$(echo "$STATE" | jq -r '.health')
+          RUNNING=$(echo "$STATE" | jq -r '.running')
+          echo "health=$HEALTH" >> "$GITHUB_OUTPUT"
+          echo "running=$RUNNING" >> "$GITHUB_OUTPUT"
+
+      - name: Restart revision if not healthy
+        if: steps.revision.outputs.health != 'Healthy'
+        run: |
+          REVISION=$(az containerapp show \
+            --name architect \
+            --resource-group rg-aos-staging \
+            --query properties.latestRevisionName -o tsv)
+          echo "Restarting revision: $REVISION"
+          az containerapp revision restart \
+            --name architect \
+            --resource-group rg-aos-staging \
+            --revision "$REVISION"
+          echo "Waiting for container to start..."
+          sleep 45
+
+      - name: Wait for healthy revision
+        run: |
+          echo "Polling for Healthy state (up to 2 minutes)..."
+          for i in $(seq 1 24); do
+            HEALTH=$(az containerapp revision list \
+              --name architect \
+              --resource-group rg-aos-staging \
+              --query "[0].properties.healthState" -o tsv)
+            echo "  [$i/24] healthState: $HEALTH"
+            if [ "$HEALTH" = "Healthy" ]; then
+              echo "Revision is Healthy — proceeding"
+              break
+            fi
+            if [ "$i" = "24" ]; then
+              echo "::error::Revision did not reach Healthy state within 2 minutes"
+              exit 1
+            fi
+            sleep 5
+          done
+
+      - name: Run test shell session
+        run: |
+          echo "=== Starting test shell session ==="
+          az containerapp exec \
+            --name architect \
+            --resource-group rg-aos-staging \
+            --command /bin/bash << 'SHELL'
+          echo ""
+          echo "=== AOS Architect — Test Session ==="
+          echo ""
+
+          echo "--- Container identity ---"
+          whoami
+          hostname
+
+          echo ""
+          echo "--- /root contents ---"
+          ls -la /root/
+
+          echo ""
+          echo "--- /root/ASISaga repos ---"
+          ls /root/ASISaga/ 2>/dev/null && echo "(repos present)" || echo "(not yet cloned)"
+
+          echo ""
+          echo "--- ~/.claude/ ---"
+          ls -la /root/.claude/ 2>/dev/null || echo "(not yet created — claude login required)"
+
+          echo ""
+          echo "--- Claude Code process ---"
+          ps aux | grep -v grep | grep claude || echo "(claude not running as a process)"
+
+          echo ""
+          echo "--- Claude Code binary ---"
+          which claude && claude --version || echo "(claude binary not found)"
+
+          echo ""
+          echo "--- gh CLI auth ---"
+          gh auth status 2>&1 || echo "(gh not authenticated)"
+
+          echo ""
+          echo "--- Environment ---"
+          echo "ARCHITECT_GITHUB_TOKEN set: $([ -n "$ARCHITECT_GITHUB_TOKEN" ] && echo yes || echo no)"
+          echo "MIND_MCP_URL: ${MIND_MCP_URL:-not set}"
+
+          echo ""
+          echo "--- entrypoint.sh last run (process 1) ---"
+          cat /proc/1/cmdline 2>/dev/null | tr '\0' ' ' || echo "(cannot read proc/1)"
+
+          echo ""
+          echo "=== Test session complete — exiting cleanly ==="
+          exit 0
+          SHELL
+          echo "Shell session exited"
+
+      - name: Confirm scale-to-zero after exit
+        run: |
+          echo "Waiting 30s for container to scale down after session exit..."
+          sleep 30
+          STATE=$(az containerapp revision list \
+            --name architect \
+            --resource-group rg-aos-staging \
+            --query "[0].{health:properties.healthState, running:properties.runningState, replicas:properties.replicas}" \
+            -o json)
+          echo "Final revision state: $STATE"
+          echo ""
+          echo "Note: if runningState is still 'Running', the platform may"
+          echo "take a few more minutes to fully scale to zero. This is normal."
