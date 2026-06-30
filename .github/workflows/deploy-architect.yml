@@ -234,7 +234,7 @@ jobs:
             --resource-group rg-aos-staging \
             --template-file modules/architect-container-app.bicep \
             --parameters \
-              location=eastus \
+              location=eastus2 \
               environmentName=cae-aos-staging \
               acrLoginServer=acraosstagingerm2srfd.azurecr.io \
               acrName=acraosstagingerm2srfd \
