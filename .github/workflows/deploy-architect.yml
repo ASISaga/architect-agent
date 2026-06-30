@@ -93,8 +93,8 @@ jobs:
             --resource-group rg-aos-staging \
             --template-file modules/architect-secrets.bicep \
             --parameters \
-              keyVaultName=${{ secrets.KEY_VAULT_NAME }} \
-              architectGithubToken=${{ secrets.ARCHITECT_GITHUB_TOKEN }}
+              keyVaultName="${{ secrets.KEY_VAULT_NAME }}" \
+              architectGithubToken="${{ secrets.ARCHITECT_GITHUB_TOKEN }}"
 
       - name: Get secret URI
         id: uris
@@ -114,5 +114,5 @@ jobs:
               environmentName=cae-aos-staging \
               acrLoginServer=acraosstagingerm2srfd.azurecr.io \
               acrName=acraosstagingerm2srfd \
-              storageAccountName=${{ secrets.STORAGE_ACCOUNT_NAME }} \
-              githubTokenSecretUri=${{ steps.uris.outputs.github_uri }}
+              storageAccountName="${{ secrets.STORAGE_ACCOUNT_NAME }}" \
+              githubTokenSecretUri="${{ steps.uris.outputs.github_uri }}"
