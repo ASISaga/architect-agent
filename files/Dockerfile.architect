@@ -1,0 +1,75 @@
+# syntax=docker/dockerfile:1
+# AOS Architect — Claude Code in a Container App
+#
+# Layer model (stable → dynamic):
+#
+#   Layer 1  OS base + system tooling    Rebuild: Ubuntu security patches
+#   Layer 2  Node.js                     Rebuild: Node version change
+#   Layer 3  gh CLI                      Rebuild: gh version change
+#   Layer 4  Claude Code baseline        Rebuild: Claude Code version change
+#   Layer 5  entrypoint.sh               Rebuild: script logic change only
+#
+# Dynamic files (NEVER baked — read from Azure Files share at start):
+#   entrypoint.sh    repos.txt    versions.env
+#   CLAUDE.md        ARCHITECT-CONTEXT.md    claude-settings.json
+#
+# Version upgrades:
+#   1. Update versions.env in architect-agent/container/
+#   2. Manually trigger build-architect.yml in aos-infra
+#   The entrypoint reports installed vs declared at each start.
+#
+# No exposed ports. Outbound only. Remote Control over HTTPS.
+
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# ---------------------------------------------------------------------
+# Layer 1 — OS base + system tooling
+# ---------------------------------------------------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    git \
+    ca-certificates \
+    gnupg \
+    jq \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---------------------------------------------------------------------
+# Layer 2 — Node.js 22
+# ---------------------------------------------------------------------
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---------------------------------------------------------------------
+# Layer 3 — gh CLI
+# ---------------------------------------------------------------------
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+      -o /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) \
+      signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] \
+      https://cli.github.com/packages stable main" \
+      > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends gh \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---------------------------------------------------------------------
+# Layer 4 — Claude Code baseline
+# Version is updated in architect-agent/container/versions.env.
+# To upgrade: update versions.env, then manually trigger build-architect.yml.
+# ---------------------------------------------------------------------
+RUN npm install -g @anthropic-ai/claude-code
+
+# ---------------------------------------------------------------------
+# Layer 5 — entrypoint
+# Reads all dynamic config from Azure Files share (/root) at start.
+# All other container/ files come from the architect-agent clone.
+# ---------------------------------------------------------------------
+COPY entrypoint.sh /opt/architect/entrypoint.sh
+RUN chmod +x /opt/architect/entrypoint.sh
+
+WORKDIR /root
+
+CMD ["/opt/architect/entrypoint.sh"]

@@ -1,0 +1,57 @@
+name: Build Architect
+
+# Triggered by:
+# 1. Push to Dockerfile.architect or entrypoint.sh in aos-infra
+# 2. workflow_dispatch — manual trigger (e.g. to apply version upgrades)
+#
+# Dynamic files (CLAUDE.md, repos.txt, versions.env, claude-settings.json)
+# live in architect-agent and are uploaded to Azure Files share by
+# architect-agent/deploy-architect.yml — they never trigger this workflow.
+#
+# On completion, dispatches to architect-agent to run deploy-architect.yml.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Dockerfile.architect'
+      - 'entrypoint.sh'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build and push aos/architect
+        run: |
+          az acr build \
+            --registry acraosstagingerm2srfd \
+            --image aos/architect:latest \
+            --image aos/architect:${{ github.sha }} \
+            --file Dockerfile.architect \
+            .
+
+      - name: Dispatch deploy to architect-agent
+        env:
+          DEPLOY_DISPATCH_TOKEN: ${{ secrets.DEPLOY_DISPATCH_TOKEN }}
+        run: |
+          jq -n \
+            --arg sha "${{ github.sha }}" \
+            --arg event "architect-image-built" \
+            '{"event_type": $event, "client_payload": {"image_sha": $sha}}' \
+          | gh api repos/ASISaga/architect-agent/dispatches \
+              --method POST \
+              --input -

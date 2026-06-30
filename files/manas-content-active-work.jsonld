@@ -1,0 +1,91 @@
+{
+  "@context": {
+    "@vocab": "https://schema.org/",
+    "mind": "https://asisaga.com/ontology/mind#",
+    "architect": "https://asisaga.com/ontology/architect#"
+  },
+
+  "@type": "mind:ManasContent",
+  "@id": "https://mind.asisaga.com/architect/Manas/content/active-work",
+  "mind:agent": "architect",
+  "mind:dimension": "Manas",
+  "mind:layer": "content",
+  "mind:lastUpdated": "2026-06-07",
+
+  "architect:immediate": [
+    {
+      "task": "Fix invoke_tool error message",
+      "repo": "ASISaga/purpose-agent",
+      "file": "src/purpose_driven_agent/agents/mcp_manager.py",
+      "change": "Change 'not in index' to 'not found in tool index'",
+      "effort": "One line. Do this first."
+    },
+    {
+      "task": "Create ASISaga/architect-agent repository",
+      "contents": "container/, mind/, skills/, .github/",
+      "source": "All files produced in session 9 outputs"
+    },
+    {
+      "task": "Load architect mind documents into mind.asisaga.com",
+      "documents": [
+        "architect/Ahankara/ahankara.jsonld",
+        "architect/Buddhi/buddhi.jsonld",
+        "architect/Buddhi/philosophy.md",
+        "architect/Buddhi/organism.md",
+        "architect/Buddhi/architecture.md",
+        "architect/Buddhi/relationship.md",
+        "architect/Buddhi/invariants.md",
+        "architect/Manas/context/company.jsonld",
+        "architect/Manas/context/boardroom.jsonld",
+        "architect/Manas/content/active-work.jsonld",
+        "architect/Manas/content/next-session.jsonld",
+        "architect/Possibility/possibility.md",
+        "architect/Conversations/index.jsonld",
+        "architect/Conversations/2026-06-07-session-9.md"
+      ]
+    }
+  ],
+
+  "architect:important": [
+    {
+      "task": "Wire _invoke_llm() in CXO agents",
+      "detail": "FoundryChatClient from agent_framework.foundry with persona system prompt and LoRA adapter. This makes the avatars speak in their voices.",
+      "blockedBy": "Nothing"
+    },
+    {
+      "task": "Register mind.asisaga.com as MCP connection in Foundry project",
+      "detail": "ai-aos-staging-erm2sr-project. Connection name: mind-mcp-connection.",
+      "blockedBy": "Nothing"
+    },
+    {
+      "task": "Create architect Container App in Azure portal",
+      "detail": "Follow architect-container-app-setup.md. Image already in ACR.",
+      "blockedBy": "Nothing"
+    },
+    {
+      "task": "ERPNext setup wizard",
+      "detail": "Phase 0. Company: ASI Saga. Then Phase 1: actual purchase invoices.",
+      "blockedBy": "Nothing"
+    },
+    {
+      "task": "CEO and CTO persona decisions",
+      "detail": "Architect-level decisions. Deliberate in the Boardroom itself.",
+      "blockedBy": "_invoke_llm() wiring"
+    }
+  ],
+
+  "architect:drift": [
+    "aos-kernel still lists azure-ai-agents>=1.1.0 — remove, use azure-ai-projects==2.2.0",
+    "Dockerfile.aos-agent COPY: compiled/${PACKAGE_DIR}/ → compiled/",
+    "ENV PYTHONPATH absent in Dockerfile.aos-agent",
+    "build-infrastructure.yml dispatch target: purpose-driven-agent → purpose-agent",
+    "pydantic version conflict: requirements 2.11.4 vs pyproject.toml >=2.12.0"
+  ],
+
+  "architect:testStatus": {
+    "passing": 287,
+    "failing": 1,
+    "failingTest": "test_invoke_raises_when_tool_not_in_index",
+    "fix": "mcp_manager.py line: 'not in index' → 'not found in tool index'"
+  }
+}

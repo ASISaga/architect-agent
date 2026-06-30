@@ -1,0 +1,113 @@
+{
+  "@context": {
+    "@vocab": "https://schema.org/",
+    "mind": "https://asisaga.com/ontology/mind#",
+    "architect": "https://asisaga.com/ontology/architect#"
+  },
+
+  "@type": "mind:ManasContent",
+  "@id": "https://mind.asisaga.com/architect/Manas/content/next-session",
+  "mind:agent": "architect",
+  "mind:lastUpdated": "2026-06-07",
+
+  "architect:openWith": "The Spooster mind documents need to be per-CXO, not company-level. See correction note below. Fix this before anything else.",
+
+  "architect:corrections": [
+    {
+      "issue": "Spooster mind documents are company-level, not per-CXO",
+      "detail": "The four documents produced from the spooster.com scrape (manas-context-company.jsonld, manas-content-active.jsonld, possibility.md, integrity.jsonld) are at the wrong level. Each CXO agent needs its own namespace with its own Manas, seeded with the company context but expressed through that agent's domain lens.",
+      "correctStructure": {
+        "boardroom/spooster/": {
+          "founder/": {
+            "Manas/context/company.jsonld": "Strategic narrative — where Spooster is in its story, what the next chapter requires",
+            "Manas/content/active.jsonld": "Current strategic priorities and gaps",
+            "Possibility/possibility.md": "Pending founder declaration",
+            "Integrity/integrity.jsonld": "Founder's commitments",
+            "Ahankara/ahankara.jsonld": "From _templates/Ahankara/founder.jsonld",
+            "Buddhi/buddhi.jsonld": "From _templates/Buddhi/founder.jsonld"
+          },
+          "cfo/": {
+            "Manas/context/company.jsonld": "Financial structure — revenue model, cost base, cash position, growth economics of a managed services business",
+            "Manas/content/active.jsonld": "Current financial reality (pending ERP connection)",
+            "Possibility/possibility.md": "CFO's financial Possibility for Spooster",
+            "Integrity/integrity.jsonld": "CFO's financial commitments",
+            "Ahankara/ahankara.jsonld": "From _templates/Ahankara/cfo.jsonld",
+            "Buddhi/buddhi.jsonld": "From _templates/Buddhi/cfo.jsonld"
+          },
+          "cmo/": {
+            "Manas/context/company.jsonld": "Market position — MSP channel, SMB direct, geographies, differentiation in a commoditising network services market",
+            "Manas/content/active.jsonld": "Current market reality and pipeline",
+            "Possibility/possibility.md": "CMO's market Possibility for Spooster",
+            "Integrity/integrity.jsonld": "CMO's commitments",
+            "Ahankara/ahankara.jsonld": "From _templates/Ahankara/cmo.jsonld",
+            "Buddhi/buddhi.jsonld": "From _templates/Buddhi/cmo.jsonld"
+          },
+          "cto/": {
+            "Manas/context/company.jsonld": "Technology — network automation, SD-WAN, cloud security stack, vendor certifications and partnerships",
+            "Manas/content/active.jsonld": "Current technology reality",
+            "Possibility/possibility.md": "CTO's technology Possibility for Spooster",
+            "Integrity/integrity.jsonld": "CTO's commitments",
+            "Ahankara/ahankara.jsonld": "From _templates/Ahankara/cto.jsonld",
+            "Buddhi/buddhi.jsonld": "From _templates/Buddhi/cto.jsonld"
+          },
+          "cso/": {
+            "Manas/context/company.jsonld": "Security — cloud network security posture, client risk profiles, compliance requirements across geographies",
+            "Manas/content/active.jsonld": "Current security reality",
+            "Possibility/possibility.md": "CSO's security Possibility for Spooster",
+            "Integrity/integrity.jsonld": "CSO's commitments",
+            "Ahankara/ahankara.jsonld": "From _templates/Ahankara/cso.jsonld",
+            "Buddhi/buddhi.jsonld": "From _templates/Buddhi/cso.jsonld"
+          }
+        }
+      },
+      "whatToFix": [
+        "Update spec-company-provisioning.md Step 4 to reflect per-CXO namespace structure",
+        "Update provision_company.py _seed_mind_namespace() to generate per-CXO Manas documents — each expressing the company context through that CXO's domain lens",
+        "Update the LLM prompt in _generate_mind_documents() to produce per-CXO Manas documents, not a single company-level document",
+        "Produce correct Spooster mind documents in per-CXO structure and load into mind.asisaga.com/boardroom/spooster/"
+      ]
+    }
+  ],
+
+  "architect:immediate": [
+    {
+      "task": "Fix invoke_tool error message in purpose-agent",
+      "file": "src/purpose_driven_agent/agents/mcp_manager.py",
+      "change": "'not in index' → 'not found in tool index'",
+      "effort": "One line"
+    },
+    {
+      "task": "Fix Spooster mind documents — per-CXO structure",
+      "detail": "See corrections above. Produce five CXO namespaces, each with domain-specific Manas seeded from the spooster.com scrape."
+    },
+    {
+      "task": "Update spec-company-provisioning.md and provision_company.py",
+      "detail": "Reflect per-CXO namespace structure throughout"
+    },
+    {
+      "task": "Create ASISaga/architect-agent repository and commit all session-9 outputs"
+    },
+    {
+      "task": "Load architect mind documents into mind.asisaga.com"
+    },
+    {
+      "task": "Create architect Container App in Azure — image already in ACR"
+    }
+  ],
+
+  "architect:important": [
+    "Wire _invoke_llm() in CXO agents — FoundryChatClient + persona system prompt",
+    "Register mind.asisaga.com as MCP connection in Foundry project (mind-mcp-connection)",
+    "ERPNext Phase 0 — setup wizard, company: ASI Saga",
+    "CEO and CTO persona decisions — deliberate in Boardroom itself",
+    "Write spec-genesis-sprint.md, spec-boardroom-network.md, spec-mind-schema.md",
+    "Whitepaper major revision — foundation at architect-agent/whitepaper/, develop into definitive document"
+  ],
+
+  "architect:context": {
+    "spooster": "Brother's company. First external Boardroom customer. Network engineering and managed services, Australia. Website scraped — see mind documents in session-9 outputs. Per-CXO documents still to be produced correctly.",
+    "boardroomNetwork": "The Boardroom is a network of organisations in resonance, not a standalone application. A2A already built. Per-org mind schema already handles this. Most impact in experience. Whitepaper updated to reflect network vision.",
+    "featureFreeze": "Architect container is feature-frozen. Deploy only — no further changes to CLAUDE.md, entrypoint.sh, or Bicep until deployed and running.",
+    "firstLogin": "On first Container App start, run 'claude login' in the terminal. Credentials persist to Azure Files share."
+  }
+}

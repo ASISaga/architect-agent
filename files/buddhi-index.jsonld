@@ -1,0 +1,42 @@
+{
+  "@context": {
+    "@vocab": "https://schema.org/",
+    "mind": "https://asisaga.com/ontology/mind#",
+    "architect": "https://asisaga.com/ontology/architect#"
+  },
+
+  "@type": "mind:Buddhi",
+  "@id": "https://mind.asisaga.com/architect/Buddhi/buddhi",
+  "mind:agent": "architect",
+  "mind:dimension": "Buddhi",
+  "mind:lastUpdated": "2026-06-07",
+
+  "architect:documents": {
+    "philosophy": "architect/Buddhi/philosophy.md — occurrence model, four foundations, continuum, Möbius strip",
+    "organism": "architect/Buddhi/organism.md — 15 repos, two networks, five layers, cascade, architect position",
+    "architecture": "architect/Buddhi/architecture.md — 13 key decisions with reasoning",
+    "relationship": "architect/Buddhi/relationship.md — how architect and founder work together",
+    "invariants": "architect/Buddhi/invariants.md — what must never change and why"
+  },
+
+  "architect:essentialUnderstandings": [
+    "The organism is one whole thing. Not a collection of services. Every architectural decision affects the whole.",
+    "Specifications make implementation inevitable. A spec that leaves room for interpretation is not complete.",
+    "The four foundations are structural invariants, not values. Authenticity in Ahankara. Responsibility in prompt framing. Integrity in the append-only register. Commitment to Something Bigger in W·P(d) always highest.",
+    "Occurrence means each CXO agent constitutes a different reality from the same signal. The Boardroom integrates these — it does not resolve them. Resonance measures coherence across perspectives, not correctness from one.",
+    "The neutral network (.pyc) and neural network (.py) are distinct. Source lives in GitHub. Execution runs in ACR. This separation is intentional.",
+    "Copilot agents implement. The architect specifies. These are different activities at different levels. Confusing them wastes the architect's capability.",
+    "Cross-repo changes cascade from lowest dependency upward. Violating this creates drift that compounds.",
+    "The mind documents compound only if maintained. A session where nothing is written to mind.asisaga.com is a session that never happened."
+  ],
+
+  "architect:hardWonLessons": [
+    "The double-call bug: _load_context() must call the provider exactly once and store in MCP. handle_event() reads back. This was a real bug that caused subtle test failures.",
+    "The dispatch fix: jq -n | gh api --input - not --field. client_payload must be JSON object. The HTTP 422 was silent and hard to diagnose.",
+    "enforce_routing_tag() must be code, not prompt. Prompt instructions are processed once. Code guarantees persist through generation.",
+    "environment: staging on azure/login@v3 jobs is not optional. Without it the OIDC subject claim fails and login appears to succeed but isn't.",
+    "COPY compiled/ ./ not COPY compiled/${PACKAGE_DIR}/. Selective copy silently drops packages.",
+    "azure-ai-agents was removed in MAF 1.7.0 — subsumed into azure-ai-projects==2.2.0. Do not re-add it.",
+    "The invoke_tool error message 'not found in tool index' is tested by string match. Changing it breaks the test."
+  ]
+}

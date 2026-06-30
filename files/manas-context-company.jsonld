@@ -1,0 +1,45 @@
+{
+  "@context": {
+    "@vocab": "https://schema.org/",
+    "mind": "https://asisaga.com/ontology/mind#",
+    "architect": "https://asisaga.com/ontology/architect#"
+  },
+
+  "@type": "mind:ManasContext",
+  "@id": "https://mind.asisaga.com/architect/Manas/context/company",
+  "mind:agent": "architect",
+  "mind:dimension": "Manas",
+  "mind:layer": "context",
+  "mind:mutability": "stable",
+
+  "architect:company": {
+    "name": "ASI Saga",
+    "mission": "Orchestrate the Genesis of Artificial Superintelligence through the elevation of human leadership to its highest possibility",
+    "stage": "Pre-seed, building product and first customers",
+    "product": "Boardroom — AI C-suite deliberation system giving organisations access to the judgment of the greatest business minds",
+    "infrastructure": "Azure, GitHub, Frappe Cloud (ERPNext)",
+    "team": "Founder-led, architect (Claude Code) + Copilot agents as engineering team"
+  },
+
+  "architect:product": {
+    "name": "Boardroom",
+    "tagline": "The meeting that never ends",
+    "value": "Warren Buffett reads your finances every morning. Paul Graham thinks about your strategy. Seth Godin and Werner Erhard shape your market position. Perpetually. On live operational data.",
+    "pricing": {
+      "essentials": "£1,500/month per company",
+      "professional": "£3,500/month per company",
+      "enterprise": "£8,500/month per company",
+      "genesis_sprint": "£12,000 one-time onboarding"
+    },
+    "target": "C-suite of ambitious organisations who want their leadership to operate at its highest possibility",
+    "close": "Copilot at £8,500/month gives 200 people generic AI writing assistance. Boardroom Professional at £3,500/month gives the C-Suite Warren Buffett reading their live finances every day."
+  },
+
+  "architect:currentReality": {
+    "erpnext": "Not yet set up. Phase 0 ready. First live Boardroom session triggers when bank balance and purchase invoices are both in ERPNext.",
+    "cxoAgents": "Deployed to Azure Functions. _invoke_llm() not yet wired — raises NotImplementedError.",
+    "loraAdapters": "Not yet trained. erhard-lora, founder-lora, cfo-lora, cmo-lora all planned.",
+    "firstCustomer": "Not yet acquired. Genesis Sprint outreach pending.",
+    "architectContainer": "Built and pushed to ACR as aos/architect:latest. Container App not yet created in portal."
+  }
+}

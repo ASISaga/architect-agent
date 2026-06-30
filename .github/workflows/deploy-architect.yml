@@ -1,0 +1,118 @@
+name: Deploy Architect
+
+# Triggered by:
+# 1. Push to container/ — uploads dynamic files to Azure Files share
+# 2. Push to modules/  — deploys Bicep infrastructure
+# 3. repository_dispatch from aos-infra after a new image build
+# 4. workflow_dispatch — manual trigger
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'container/**'
+      - 'modules/**'
+  repository_dispatch:
+    types: [architect-image-built]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  # -------------------------------------------------------------------
+  # Job 1: Upload dynamic files to Azure Files share
+  # Runs when container/ files change, or on dispatch/manual trigger.
+  # No image rebuild. No Container App restart.
+  # Files take effect at next session start.
+  # -------------------------------------------------------------------
+  upload-dynamic-files:
+    runs-on: ubuntu-latest
+    environment: staging
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'repository_dispatch' ||
+      contains(toJson(github.event.head_commit.modified), 'container/')
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Upload dynamic files to Azure Files share
+        run: |
+          FILES=(
+            entrypoint.sh
+            repos.txt
+            versions.env
+            CLAUDE.md
+            ARCHITECT-CONTEXT.md
+            claude-settings.json
+          )
+          for f in "${FILES[@]}"; do
+            echo "Uploading $f"
+            az storage file upload \
+              --account-name ${{ secrets.STORAGE_ACCOUNT_NAME }} \
+              --share-name architect-home \
+              --source "container/$f" \
+              --path "$f" \
+              --overwrite true \
+              --auth-mode login
+          done
+          echo "All dynamic files uploaded"
+
+  # -------------------------------------------------------------------
+  # Job 2: Deploy Bicep infrastructure
+  # Runs when modules/ change, or on dispatch/manual trigger.
+  # Manages: Container App, Key Vault secrets, Azure Files share.
+  # Bicep is idempotent — safe to re-run.
+  # -------------------------------------------------------------------
+  deploy-infrastructure:
+    runs-on: ubuntu-latest
+    environment: staging
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'repository_dispatch' ||
+      contains(toJson(github.event.head_commit.modified), 'modules/')
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy architect secrets
+        run: |
+          az deployment group create \
+            --resource-group rg-aos-staging \
+            --template-file modules/architect-secrets.bicep \
+            --parameters \
+              keyVaultName=${{ secrets.KEY_VAULT_NAME }} \
+              architectGithubToken=${{ secrets.ARCHITECT_GITHUB_TOKEN }}
+
+      - name: Get secret URI
+        id: uris
+        run: |
+          echo "github_uri=$(az keyvault secret show \
+            --vault-name ${{ secrets.KEY_VAULT_NAME }} \
+            --name architect-github-token \
+            --query id -o tsv)" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy architect infrastructure
+        run: |
+          az deployment group create \
+            --resource-group rg-aos-staging \
+            --template-file modules/architect-container-app.bicep \
+            --parameters \
+              location=eastus \
+              environmentName=cae-aos-staging \
+              acrLoginServer=acraosstagingerm2srfd.azurecr.io \
+              acrName=acraosstagingerm2srfd \
+              storageAccountName=${{ secrets.STORAGE_ACCOUNT_NAME }} \
+              githubTokenSecretUri=${{ steps.uris.outputs.github_uri }}

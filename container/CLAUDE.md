@@ -183,4 +183,3 @@ Write to mind.asisaga.com via MCP if connected; otherwise commit to
 ~/ASISaga/architect-agent/mind/ directly.
 
 The Buddhi compounds only if it is maintained.
- 
