@@ -140,6 +140,60 @@ jobs:
           fi
           echo ""
 
+      - name: ACR image existence check
+        run: |
+          echo "## ACR image check"
+          az acr repository show-tags \
+            --name acraosstagingerm2srfd \
+            --repository aos/architect \
+            --query "[?@=='latest' || @=='${{ github.sha }}']" \
+            -o tsv || echo "  ❌ Could not query repository tags"
+          echo "  (Full tag list:)"
+          az acr repository show-tags \
+            --name acraosstagingerm2srfd \
+            --repository aos/architect \
+            -o table || echo "  ❌ Repository 'aos/architect' not found in ACR"
+          echo ""
+
+      - name: Container App managed identity — AcrPull role check
+        run: |
+          echo "## Container App managed identity role check"
+          # This checks the Container App's OWN system-assigned identity,
+          # not the GitHub Actions service principal. A revision will
+          # silently fail to create (latestRevision stays null) if this
+          # identity lacks AcrPull on the registry, even if the Bicep
+          # role assignment was deployed — it can take several minutes
+          # to propagate, and the platform does not surface this as a
+          # clear error on the Container App resource itself.
+          MI_PRINCIPAL_ID=$(az containerapp show \
+            --name architect \
+            --resource-group rg-aos-staging \
+            --query identity.principalId -o tsv 2>/dev/null || true)
+          if [ -z "$MI_PRINCIPAL_ID" ] || [ "$MI_PRINCIPAL_ID" = "None" ]; then
+            echo "  ❌ Container App has no managed identity principalId — identity may not have provisioned"
+          else
+            echo "  Managed identity principalId: $MI_PRINCIPAL_ID"
+            ACR_ID=$(az acr show --name acraosstagingerm2srfd --query id -o tsv)
+            ROLES=$(az role assignment list --assignee "$MI_PRINCIPAL_ID" --scope "$ACR_ID" --query "[].roleDefinitionName" -o tsv)
+            if [ -z "$ROLES" ]; then
+              echo "  ❌ No roles assigned to Container App identity on ACR — this is likely why latestRevision is null"
+              echo "     Fix: az role assignment create --role AcrPull --assignee $MI_PRINCIPAL_ID --scope $ACR_ID"
+            else
+              echo "  ✅ Roles: $ROLES"
+            fi
+          fi
+          echo ""
+
+      - name: Deployment operation error details
+        run: |
+          echo "## Deployment operation errors (full detail)"
+          az deployment operation group list \
+            --resource-group rg-aos-staging \
+            --name architect-container-app \
+            --query "[?properties.provisioningState=='Failed'].properties.statusMessage" \
+            -o jsonc || echo "  ⚠️  Could not fetch deployment operation details"
+          echo ""
+
       - name: Console logs (entrypoint.sh output)
         run: |
           echo "## Console logs (last ${{ github.event.inputs.log_lines || '200' }} lines)"
@@ -159,7 +213,7 @@ jobs:
             --resource-group rg-aos-staging \
             --type system \
             --tail "${{ github.event.inputs.log_lines || '200' }}" \
-            --format text || echo "  ⚠️  No system logs available"
+            --format json || echo "  ⚠️  No system logs available"
           echo ""
 
       - name: Summary
