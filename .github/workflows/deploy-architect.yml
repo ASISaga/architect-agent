@@ -37,14 +37,52 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Validate required secrets
+        run: |
+          # Catches empty/whitespace-only secrets early with a clear
+          # message, instead of failing deep inside an az command with
+          # an opaque error. Also strips and re-checks for trailing
+          # newlines, which silently corrupt resource-name lookups.
+          fail=0
+          for name in STORAGE_ACCOUNT_NAME; do
+            val="${!name}"
+            trimmed="$(printf '%s' "$val" | tr -d '[:space:]')"
+            if [ -z "$trimmed" ]; then
+              echo "::error::Secret $name is empty or unset."
+              fail=1
+            elif [ "$val" != "$trimmed" ]; then
+              echo "::error::Secret $name contains leading/trailing whitespace or a newline. Re-set it with: printf '%s' \"value\" | gh secret set $name --repo ASISaga/architect-agent"
+              fail=1
+            fi
+          done
+          if [ "$fail" = "1" ]; then
+            exit 1
+          fi
+          echo "Secrets validated"
+        env:
+          STORAGE_ACCOUNT_NAME: ${{ secrets.STORAGE_ACCOUNT_NAME }}
+
       - uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Confirm storage account exists
+        run: |
+          if ! az storage account show \
+                --name "${{ secrets.STORAGE_ACCOUNT_NAME }}" \
+                --resource-group rg-aos-staging \
+                -o none 2>/dev/null; then
+            echo "::error::Storage account '${{ secrets.STORAGE_ACCOUNT_NAME }}' not found in rg-aos-staging. List existing accounts with: az storage account list --resource-group rg-aos-staging --query '[].name' -o tsv"
+            exit 1
+          fi
+
       - name: Upload dynamic files to Azure Files share
         run: |
+          # az storage file upload (Files service) overwrites by default —
+          # there is no --overwrite flag for this command (that flag only
+          # exists on az storage blob upload). Do not add it back.
           FILES=(
             entrypoint.sh
             repos.txt
@@ -56,7 +94,7 @@ jobs:
           for f in "${FILES[@]}"; do
             echo "Uploading $f"
             az storage file upload \
-              --account-name ${{ secrets.STORAGE_ACCOUNT_NAME }} \
+              --account-name "${{ secrets.STORAGE_ACCOUNT_NAME }}" \
               --share-name architect-home \
               --source "container/$f" \
               --path "$f" \
@@ -80,11 +118,73 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Validate required secrets
+        run: |
+          # Same hygiene check as job 1, covering the secrets this job uses.
+          fail=0
+          for name in KEY_VAULT_NAME ARCHITECT_GITHUB_TOKEN STORAGE_ACCOUNT_NAME; do
+            val="${!name}"
+            trimmed="$(printf '%s' "$val" | tr -d '[:space:]')"
+            if [ -z "$trimmed" ]; then
+              echo "::error::Secret $name is empty or unset."
+              fail=1
+            elif [ "$val" != "$trimmed" ]; then
+              echo "::error::Secret $name contains leading/trailing whitespace or a newline. Re-set it with: printf '%s' \"value\" | gh secret set $name --repo ASISaga/architect-agent"
+              fail=1
+            fi
+          done
+          if [ "$fail" = "1" ]; then
+            exit 1
+          fi
+          echo "Secrets validated"
+        env:
+          KEY_VAULT_NAME: ${{ secrets.KEY_VAULT_NAME }}
+          ARCHITECT_GITHUB_TOKEN: ${{ secrets.ARCHITECT_GITHUB_TOKEN }}
+          STORAGE_ACCOUNT_NAME: ${{ secrets.STORAGE_ACCOUNT_NAME }}
+
       - uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Confirm Key Vault exists and is reachable
+        run: |
+          # Surfaces ParentResourceNotFound-style failures here, with the
+          # actual vault name and a list of what does exist, instead of
+          # deep inside the Bicep deployment with an opaque ARM error.
+          if ! az keyvault show \
+                --name "${{ secrets.KEY_VAULT_NAME }}" \
+                --resource-group rg-aos-staging \
+                -o none 2>/dev/null; then
+            echo "::error::Key Vault '${{ secrets.KEY_VAULT_NAME }}' not found in rg-aos-staging."
+            echo "Vaults that do exist in this resource group:"
+            az keyvault list --resource-group rg-aos-staging --query "[].name" -o tsv
+            exit 1
+          fi
+
+      - name: Confirm caller can write secrets to the vault
+        run: |
+          # RBAC-enabled vaults require an explicit role assignment —
+          # being able to 'see' the vault (Reader) is not enough to
+          # write secrets into it. Fail early with a fix command rather
+          # than letting the Bicep deployment fail with a generic error.
+          PRINCIPAL_ID=$(az ad sp show --id "${{ secrets.AZURE_CLIENT_ID }}" --query id -o tsv 2>/dev/null || true)
+          if [ -z "$PRINCIPAL_ID" ]; then
+            echo "::warning::Could not resolve service principal for AZURE_CLIENT_ID — skipping role check."
+          else
+            VAULT_ID=$(az keyvault show --name "${{ secrets.KEY_VAULT_NAME }}" --resource-group rg-aos-staging --query id -o tsv)
+            HAS_ROLE=$(az role assignment list \
+              --assignee "$PRINCIPAL_ID" \
+              --scope "$VAULT_ID" \
+              --query "[?roleDefinitionName=='Key Vault Secrets Officer' || roleDefinitionName=='Owner' || roleDefinitionName=='Contributor']" \
+              -o tsv)
+            if [ -z "$HAS_ROLE" ]; then
+              echo "::error::Service principal lacks a role to write secrets to '${{ secrets.KEY_VAULT_NAME }}'. Grant it with:"
+              echo "az role assignment create --role \"Key Vault Secrets Officer\" --assignee ${{ secrets.AZURE_CLIENT_ID }} --scope $VAULT_ID"
+              exit 1
+            fi
+          fi
 
       - name: Deploy architect secrets
         run: |
@@ -99,7 +199,7 @@ jobs:
         id: uris
         run: |
           echo "github_uri=$(az keyvault secret show \
-            --vault-name ${{ secrets.KEY_VAULT_NAME }} \
+            --vault-name "${{ secrets.KEY_VAULT_NAME }}" \
             --name architect-github-token \
             --query id -o tsv)" >> "$GITHUB_OUTPUT"
 
