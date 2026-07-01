@@ -175,12 +175,22 @@ fi
 
 # ---------------------------------------------------------------------
 # 8. Start Claude Code with Remote Control
-#    Run as a child process (not exec) so the entrypoint stays alive
-#    as PID 1, keeping the container accessible via exec at any time.
+#    Claude Code refuses --dangerously-skip-permissions as root.
+#    Drop privileges to the 'architect' user just for the claude
+#    process. runuser works without a TTY, unlike su.
 # ---------------------------------------------------------------------
 echo "=== Starting Claude Code (Remote Control) ==="
-claude --dangerously-skip-permissions --remote-control &
+
+# Create non-root user if not already present (idempotent)
+id architect &>/dev/null || useradd -m -s /bin/bash architect
+
+# Ensure architect user can read /root (the Azure Files mount)
+chmod o+rx /root
+chown -R architect:architect /root/.claude 2>/dev/null || true
+
+CLAUDE_BIN=$(which claude)
+runuser -u architect -- "$CLAUDE_BIN" --dangerously-skip-permissions --remote-control &
 CLAUDE_PID=$!
-echo "Claude Code started (PID $CLAUDE_PID)"
+echo "Claude Code started as 'architect' user (PID $CLAUDE_PID)"
 wait $CLAUDE_PID
 echo "Claude Code exited (PID $CLAUDE_PID)"
