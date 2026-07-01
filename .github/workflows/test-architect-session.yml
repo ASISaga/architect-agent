@@ -1,24 +1,19 @@
 name: Test Architect Session
 
-# Opens an interactive SSH session into the GitHub Actions runner,
-# from which you can exec directly into the architect container.
+# Opens an interactive terminal session into the GitHub Actions runner
+# via Upterm, from which you can exec into the architect container.
 #
-# Works from mobile via any SSH client (Termius, etc).
+# Access is restricted to the GitHub account that triggered the workflow
+# — no SSH keys or extra setup needed.
 #
 # How to use:
-# 1. Run this workflow from GitHub Actions (Actions tab → Run workflow)
-# 2. Watch the workflow log — it will print an SSH command and a
-#    web URL within ~30 seconds
-# 3. Connect from your SSH client (or the web URL — no app needed)
-# 4. You are now in the GitHub Actions runner shell
-# 5. Run: az containerapp exec --name architect \
-#            --resource-group rg-aos-staging --command /bin/bash
-# 6. You are now inside the architect container
-# 7. When done, type 'exit' twice (once for container, once for runner)
-#    The workflow ends automatically when you disconnect.
-#
-# The workflow will wait up to 30 minutes for you to connect and
-# finish. If you don't connect, it times out and exits cleanly.
+#   1. Actions → Test Architect Session → Run workflow
+#   2. Watch the log — a session URL appears within ~30 seconds
+#   3. Open the URL in your mobile browser — instant terminal
+#   4. Run: az containerapp exec --name architect \
+#              --resource-group rg-aos-staging --command /bin/bash
+#   5. You are inside the architect container
+#   6. Type 'exit' to leave the container, 'exit' again to end session
 
 on:
   workflow_dispatch:
@@ -51,25 +46,20 @@ jobs:
               --name architect \
               --resource-group rg-aos-staging \
               --query properties.latestRevisionName -o tsv)
-            echo "Restarting revision: $REVISION"
+            echo "Restarting: $REVISION"
             az containerapp revision restart \
               --name architect \
               --resource-group rg-aos-staging \
               --revision "$REVISION"
             echo "Waiting 60s for cold start..."
             sleep 60
-            HEALTH=$(az containerapp revision list \
-              --name architect \
-              --resource-group rg-aos-staging \
-              --query "[0].properties.healthState" -o tsv)
-            echo "Health after restart: $HEALTH"
           fi
+          echo "Container ready"
 
-      - name: Open SSH session (tmate)
-        uses: mxschmitt/action-tmate@v3
+      - name: Open session (Upterm)
+        uses: lhotari/action-upterm@v1
         with:
-          # Limit access to the person who triggered the workflow
-          # (their GitHub username) — prevents others from connecting
+          # Restricts access to the GitHub account that triggered
+          # this workflow — no SSH keys or extra setup needed
           limit-access-to-actor: true
-        # The step completes when you disconnect from the SSH session
-        # or when the job times out (30 minutes, set above)
+          github-token: ${{ secrets.GITHUB_TOKEN }}
