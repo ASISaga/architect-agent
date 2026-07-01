@@ -146,15 +146,17 @@ echo ""
 # ---------------------------------------------------------------------
 # 6. Claude Code auth check
 # Credentials persist in ~/.claude/ on the Azure Files share.
-# On first start: run 'claude login' in the terminal after connecting.
+# On first start: run 'claude login' via the Code tab after connecting,
+# or via Cloud Shell: az containerapp exec ... --command /bin/bash
+# then: claude login
 # Subsequent starts: already authenticated from persisted credentials.
 # ---------------------------------------------------------------------
 if [ ! -f ~/.claude/credentials.json ]; then
-  echo "NOTE: Claude Code not yet authenticated."
-  echo "      After connecting via Remote Control, run: claude login"
-  echo "      Credentials will persist to the Azure Files share."
+  echo "Claude Code: NOT authenticated — credentials.json absent"
+  echo "      First-time setup required: run 'claude login' after connecting"
+  echo "      NOTE: Remote Control may not accept connections until login is complete"
 else
-  echo "Claude Code: authenticated"
+  echo "Claude Code: authenticated — credentials.json present"
 fi
 
 # ---------------------------------------------------------------------
