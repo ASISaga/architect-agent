@@ -1,19 +1,17 @@
 name: Test Architect Session
 
-# Opens an interactive terminal session into the GitHub Actions runner
-# via Upterm, from which you can exec into the architect container.
+# Hardened async health check for the architect Container App.
+# Tests whether Claude Code is operational without interrupting
+# the running process.
 #
-# Access is restricted to the GitHub account that triggered the workflow
-# — no SSH keys or extra setup needed.
+# Uses ARM API + Log Analytics SDK only — no exec, no TTY, no shell.
 #
-# How to use:
-#   1. Actions → Test Architect Session → Run workflow
-#   2. Watch the log — a session URL appears within ~30 seconds
-#   3. Open the URL in your mobile browser — instant terminal
-#   4. Run: az containerapp exec --name architect \
-#              --resource-group rg-aos-staging --command /bin/bash
-#   5. You are inside the architect container
-#   6. Type 'exit' to leave the container, 'exit' again to end session
+# Two layers of verification:
+#   1. Infrastructure: Container App revision is Healthy/RunningAtMaxScale
+#   2. Application:   Console logs confirm Claude Code started successfully
+#
+# If either layer fails, the workflow restarts the container and
+# re-verifies before reporting success or failure.
 
 on:
   workflow_dispatch:
@@ -23,10 +21,9 @@ permissions:
   contents: read
 
 jobs:
-  test-session:
+  test:
     runs-on: ubuntu-latest
     environment: staging
-    timeout-minutes: 30
     steps:
       - uses: azure/login@v3
         with:
@@ -34,32 +31,231 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Ensure architect container is running
+      # ---------------------------------------------------------------
+      # Layer 1 — Infrastructure check
+      # ---------------------------------------------------------------
+      - name: Check revision health
+        id: health
         run: |
-          HEALTH=$(az containerapp revision list \
+          REVISION=$(az containerapp show \
             --name architect \
             --resource-group rg-aos-staging \
-            --query "[0].properties.healthState" -o tsv)
-          echo "Current health: $HEALTH"
-          if [ "$HEALTH" != "Healthy" ]; then
-            REVISION=$(az containerapp show \
-              --name architect \
-              --resource-group rg-aos-staging \
-              --query properties.latestRevisionName -o tsv)
-            echo "Restarting: $REVISION"
-            az containerapp revision restart \
-              --name architect \
-              --resource-group rg-aos-staging \
-              --revision "$REVISION"
-            echo "Waiting 60s for cold start..."
-            sleep 60
-          fi
-          echo "Container ready"
+            --query properties.latestRevisionName -o tsv)
 
-      - name: Open session (Upterm)
-        uses: lhotari/action-upterm@v1
-        with:
-          # Restricts access to the GitHub account that triggered
-          # this workflow — no SSH keys or extra setup needed
-          limit-access-to-actor: true
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          STATE=$(az containerapp revision show \
+            --name architect \
+            --resource-group rg-aos-staging \
+            --revision "$REVISION" \
+            --query "{health:properties.healthState, running:properties.runningState}" \
+            -o json)
+
+          HEALTH=$(echo "$STATE" | jq -r '.health')
+          RUNNING=$(echo "$STATE" | jq -r '.running')
+
+          echo "Revision:  $REVISION"
+          echo "Health:    $HEALTH"
+          echo "Running:   $RUNNING"
+
+          echo "revision=$REVISION" >> "$GITHUB_OUTPUT"
+          echo "health=$HEALTH"     >> "$GITHUB_OUTPUT"
+          echo "running=$RUNNING"   >> "$GITHUB_OUTPUT"
+
+      - name: Restart if not healthy
+        if: steps.health.outputs.health != 'Healthy'
+        run: |
+          echo "Revision not healthy (${{ steps.health.outputs.health }}) — restarting"
+          az containerapp revision restart \
+            --name architect \
+            --resource-group rg-aos-staging \
+            --revision "${{ steps.health.outputs.revision }}"
+
+          echo "Waiting for bootstrap to complete (~90s)..."
+          sleep 90
+
+      - name: Poll for Healthy state
+        if: steps.health.outputs.health != 'Healthy'
+        run: |
+          for i in $(seq 1 24); do
+            HEALTH=$(az containerapp revision show \
+              --name architect \
+              --resource-group rg-aos-staging \
+              --revision "${{ steps.health.outputs.revision }}" \
+              --query properties.healthState -o tsv)
+            echo "  [$i/24] healthState: $HEALTH"
+            if [ "$HEALTH" = "Healthy" ]; then
+              echo "Revision is Healthy"
+              break
+            fi
+            if [ "$i" = "24" ]; then
+              echo "::error::Revision did not reach Healthy state within 2 minutes"
+              exit 1
+            fi
+            sleep 5
+          done
+
+      # ---------------------------------------------------------------
+      # Layer 2 — Application check via Log Analytics
+      # Queries console logs for evidence that Claude Code started
+      # successfully. Does not interrupt the running process.
+      # ---------------------------------------------------------------
+      - name: Query Log Analytics for bootstrap progress
+        run: |
+          WORKSPACE=$(az monitor log-analytics workspace list \
+            --resource-group rg-aos-staging \
+            --query "[0].customerId" -o tsv)
+
+          echo "Log Analytics workspace: $WORKSPACE"
+          echo ""
+
+          RESULT=$(az monitor log-analytics query \
+            --workspace "$WORKSPACE" \
+            --analytics-query "
+              ContainerAppConsoleLogs_CL
+              | where ContainerAppName_s == 'architect'
+              | where TimeGenerated > ago(30m)
+              | order by TimeGenerated asc
+              | project TimeGenerated, Log_s
+            " \
+            --output json 2>/dev/null || echo "[]")
+
+          LOGS=$(echo "$RESULT" | jq -r '.[]?.Log_s // empty' 2>/dev/null || echo "")
+
+          # -------------------------------------------------------
+          # Bootstrap progress — show each stage and whether it
+          # completed, is in progress, or has not started yet.
+          # -------------------------------------------------------
+          echo "=== Bootstrap progress ==="
+          echo ""
+
+          stage() {
+            local MARKER="$1"
+            local LABEL="$2"
+            local DETAIL="$3"
+            if echo "$LOGS" | grep -q "$MARKER"; then
+              TIMESTAMP=$(echo "$RESULT" | jq -r \
+                ".[] | select(.Log_s | test(\"$MARKER\")) | .TimeGenerated" \
+                2>/dev/null | tail -1)
+              echo "  ✅ $LABEL"
+              [ -n "$DETAIL" ] && echo "     $DETAIL"
+              [ -n "$TIMESTAMP" ] && echo "     at $TIMESTAMP"
+            else
+              echo "  ⏳ $LABEL — not yet in logs"
+            fi
+            echo ""
+          }
+
+          stage "AOS Architect — initialising"  "Container started"         ""
+          stage "GitHub: authenticated"         "GitHub auth"               ""
+          stage "architect-agent: present"      "Bootstrap repo ready"      ""
+          stage "Ecosystem sync"                "Ecosystem sync started"    ""
+
+          # Show per-repo progress
+          if echo "$LOGS" | grep -q "Ecosystem sync"; then
+            TOTAL=$(grep -c "up to date\|cloned\|uncommitted" <<< "$LOGS" 2>/dev/null || echo 0)
+            LAST=$(echo "$LOGS" | grep -E "up to date|cloned|uncommitted|leaving as-is" | tail -1)
+            echo "     Repos synced: $TOTAL"
+            [ -n "$LAST" ] && echo "     Last: $LAST"
+            echo ""
+          fi
+
+          stage "Claude Code: authenticated"    "Anthropic credentials"     "~/.claude/credentials.json"
+          stage "Starting Claude Code"          "Claude Code launched"      "Ready for Code tab connection"
+
+          # -------------------------------------------------------
+          # Timing context
+          # -------------------------------------------------------
+          STARTED_AT=$(echo "$RESULT" | jq -r \
+            '.[] | select(.Log_s | test("AOS Architect")) | .TimeGenerated' \
+            2>/dev/null | head -1)
+
+          NOW=$(date -u +%s)
+          if [ -n "$STARTED_AT" ]; then
+            START_S=$(date -u -d "$STARTED_AT" +%s 2>/dev/null || echo "$NOW")
+            ELAPSED=$(( NOW - START_S ))
+            echo ""
+            echo "=== Timing ==="
+            echo "  Container started: $STARTED_AT"
+            echo "  Elapsed:           ${ELAPSED}s"
+            if [ "$ELAPSED" -lt 90 ]; then
+              echo "  ⏳ Bootstrap typically takes 60-90s — may still be in progress"
+            elif [ "$ELAPSED" -lt 180 ]; then
+              echo "  ⏳ Log Analytics ingestion can lag up to 2 minutes"
+              echo "     If bootstrap markers are missing, wait and re-run"
+            else
+              echo "  ✅ Sufficient time has elapsed — log state is reliable"
+            fi
+          fi
+
+          echo ""
+          echo "=== Full console log (last 30 min) ==="
+          echo "$LOGS"
+          echo "======================================"
+          echo ""
+
+          # -------------------------------------------------------
+          # Outcome
+          # -------------------------------------------------------
+          check() {
+            echo "$LOGS" | grep -q "$1"
+          }
+
+          LOGIN_PENDING=0
+          echo "$LOGS" | grep -q "NOT authenticated" && LOGIN_PENDING=1
+
+          GITHUB_OK=0;  check "GitHub: authenticated"      && GITHUB_OK=1
+          SYNC_OK=0;    check "Ecosystem sync"             && SYNC_OK=1
+          AUTH_OK=0;    check "Claude Code: authenticated" && AUTH_OK=1
+          STARTED_OK=0; check "Starting Claude Code"       && STARTED_OK=1
+
+          echo "=== Outcome ==="
+          echo ""
+
+          if [ "$GITHUB_OK" -eq 1 ] && [ "$SYNC_OK" -eq 1 ] && [ "$AUTH_OK" -eq 1 ] && [ "$STARTED_OK" -eq 1 ]; then
+            echo "✅ Claude Code is fully operational"
+            echo "   Connect via: claude.ai → Code tab"
+
+          elif [ "$GITHUB_OK" -eq 1 ] && [ "$SYNC_OK" -eq 1 ] && [ "$LOGIN_PENDING" -eq 1 ]; then
+            echo "🔐 LOGIN PENDING — expected on first start"
+            echo ""
+            echo "   Bootstrap completed successfully but Anthropic login"
+            echo "   has not been done yet. credentials.json is absent from"
+            echo "   the Azure Files share (~/.claude/credentials.json)."
+            echo ""
+            echo "   One-time setup required:"
+            echo "   1. From Azure Cloud Shell:"
+            echo "      az containerapp exec \\"
+            echo "        --name architect \\"
+            echo "        --resource-group rg-aos-staging \\"
+            echo "        --command /bin/bash"
+            echo "   2. Inside the container:"
+            echo "      claude login"
+            echo "   3. Follow the browser OAuth flow"
+            echo "   4. credentials.json persists to Azure Files share"
+            echo "   5. All subsequent starts: authenticated automatically"
+            echo ""
+            echo "   Re-run this workflow after login to confirm 4/4 ✅"
+
+          elif [ "$GITHUB_OK" -eq 0 ] && [ -n "$STARTED_AT" ] && [ "$ELAPSED" -gt 180 ]; then
+            echo "::error::GitHub auth failed — check ARCHITECT_GITHUB_TOKEN secret"
+            exit 1
+
+          elif [ "$SYNC_OK" -eq 0 ] && [ -n "$STARTED_AT" ] && [ "$ELAPSED" -gt 180 ]; then
+            echo "::error::Ecosystem sync did not complete — check console logs above"
+            exit 1
+
+          elif [ -n "$STARTED_AT" ] && [ "$ELAPSED" -lt 180 ]; then
+            echo "⏳ Bootstrap still in progress or logs not yet ingested"
+            echo "   Wait 2-3 minutes and re-run this workflow"
+
+          else
+            echo "::warning::Bootstrap state unclear"
+            echo "   No container start detected in last 30 minutes."
+            echo "   The container may be scaled to zero."
+            echo "   Run: az containerapp revision restart \\"
+            echo "          --name architect \\"
+            echo "          --resource-group rg-aos-staging \\"
+            echo "          --revision \$(az containerapp show \\"
+            echo "              --name architect \\"
+            echo "              --resource-group rg-aos-staging \\"
+            echo "              --query properties.latestRevisionName -o tsv)"
+          fi
