@@ -127,18 +127,15 @@ all that came before.
 architect-agent/
   README.md                    — this file
   container/
+    entrypoint.sh              — bootstrap script (uploaded to Azure Files share;
+                                 read by the container at runtime — NOT baked into
+                                 the image, so changes take effect on next restart
+                                 without rebuilding the image)
     repos.txt                  — list of ASISaga repos to clone/update
-    versions.env                — declared versions of Claude Code, gh CLI
+    versions.env               — declared versions of Claude Code, gh CLI
     CLAUDE.md                  — session ground (read by Claude Code first)
     ARCHITECT-CONTEXT.md       — technical reference
     claude-settings.json       — MCP servers, Remote Control config
-
-    # NOTE: entrypoint.sh is NOT here. It lives solely in
-    # ASISaga/aos-infra (repo root), baked into the image by
-    # Dockerfile.architect. A second copy was mistakenly kept here
-    # earlier and silently diverged from the one actually being
-    # built — every edit to it had no effect. Single source of
-    # truth: aos-infra/entrypoint.sh only.
   mind/
     Ahankara/
       ahankara.jsonld          — immutable identity (never modified at runtime)
