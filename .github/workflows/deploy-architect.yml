@@ -115,6 +115,7 @@ jobs:
           # silently have no effect, since the Docker build context can
           # only see files within aos-infra.
           FILES=(
+            entrypoint.sh
             repos.txt
             versions.env
             CLAUDE.md
