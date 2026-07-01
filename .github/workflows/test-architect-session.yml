@@ -1,4 +1,4 @@
-name: Test Architect Session
+Name: Test Architect Session
 
 # On-demand workflow that:
 # 1. Ensures the architect Container App has a running revision
@@ -80,10 +80,13 @@ jobs:
       - name: Run test shell session
         run: |
           echo "=== Starting test shell session ==="
-          az containerapp exec \
+          
+          # Allocate a pseudo-TTY to pass Azure CLI's Python termios verification
+          script -q -c 'az containerapp exec \
             --name architect \
             --resource-group rg-aos-staging \
-            --command /bin/bash << 'SHELL'
+            --command /bin/bash << "SHELL"
+          
           echo ""
           echo "=== AOS Architect — Test Session ==="
           echo ""
@@ -118,17 +121,18 @@ jobs:
 
           echo ""
           echo "--- Environment ---"
-          echo "ARCHITECT_GITHUB_TOKEN set: $([ -n "$ARCHITECT_GITHUB_TOKEN" ] && echo yes || echo no)"
-          echo "MIND_MCP_URL: ${MIND_MCP_URL:-not set}"
+          echo "ARCHITECT_GITHUB_TOKEN set: \$([ -n "\$ARCHITECT_GITHUB_TOKEN" ] && echo yes || echo no)"
+          echo "MIND_MCP_URL: \${MIND_MCP_URL:-not set}"
 
           echo ""
           echo "--- entrypoint.sh last run (process 1) ---"
-          cat /proc/1/cmdline 2>/dev/null | tr '\0' ' ' || echo "(cannot read proc/1)"
+          cat /proc/1/cmdline 2>/dev/null | tr "\\0" " " || echo "(cannot read proc/1)"
 
           echo ""
           echo "=== Test session complete — exiting cleanly ==="
           exit 0
-          SHELL
+          SHELL' /dev/null
+          
           echo "Shell session exited"
 
       - name: Confirm scale-to-zero after exit
