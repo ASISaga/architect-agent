@@ -1,54 +1,75 @@
-      - name: Run test shell session
+name: Test Architect Session
+
+# Opens an interactive SSH session into the GitHub Actions runner,
+# from which you can exec directly into the architect container.
+#
+# Works from mobile via any SSH client (Termius, etc).
+#
+# How to use:
+# 1. Run this workflow from GitHub Actions (Actions tab → Run workflow)
+# 2. Watch the workflow log — it will print an SSH command and a
+#    web URL within ~30 seconds
+# 3. Connect from your SSH client (or the web URL — no app needed)
+# 4. You are now in the GitHub Actions runner shell
+# 5. Run: az containerapp exec --name architect \
+#            --resource-group rg-aos-staging --command /bin/bash
+# 6. You are now inside the architect container
+# 7. When done, type 'exit' twice (once for container, once for runner)
+#    The workflow ends automatically when you disconnect.
+#
+# The workflow will wait up to 30 minutes for you to connect and
+# finish. If you don't connect, it times out and exits cleanly.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  test-session:
+    runs-on: ubuntu-latest
+    environment: staging
+    timeout-minutes: 30
+    steps:
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Ensure architect container is running
         run: |
-          echo "=== Starting test shell session ==="
-          
-          # Pass the heredoc directly into the pseudo-TTY created by script
-          script -q -c "az containerapp exec --name architect --resource-group rg-aos-staging --command /bin/bash" /dev/null << 'SHELL'
+          HEALTH=$(az containerapp revision list \
+            --name architect \
+            --resource-group rg-aos-staging \
+            --query "[0].properties.healthState" -o tsv)
+          echo "Current health: $HEALTH"
+          if [ "$HEALTH" != "Healthy" ]; then
+            REVISION=$(az containerapp show \
+              --name architect \
+              --resource-group rg-aos-staging \
+              --query properties.latestRevisionName -o tsv)
+            echo "Restarting revision: $REVISION"
+            az containerapp revision restart \
+              --name architect \
+              --resource-group rg-aos-staging \
+              --revision "$REVISION"
+            echo "Waiting 60s for cold start..."
+            sleep 60
+            HEALTH=$(az containerapp revision list \
+              --name architect \
+              --resource-group rg-aos-staging \
+              --query "[0].properties.healthState" -o tsv)
+            echo "Health after restart: $HEALTH"
+          fi
 
-          echo ""
-          echo "=== AOS Architect — Test Session ==="
-          echo ""
-
-          echo "--- Container identity ---"
-          whoami
-          hostname
-
-          echo ""
-          echo "--- /root contents ---"
-          ls -la /root/
-
-          echo ""
-          echo "--- /root/ASISaga repos ---"
-          ls /root/ASISaga/ 2>/dev/null && echo "(repos present)" || echo "(not yet cloned)"
-
-          echo ""
-          echo "--- ~/.claude/ ---"
-          ls -la /root/.claude/ 2>/dev/null || echo "(not yet created — claude login required)"
-
-          echo ""
-          echo "--- Claude Code process ---"
-          ps aux | grep -v grep | grep claude || echo "(claude not running as a process)"
-
-          echo ""
-          echo "--- Claude Code binary ---"
-          which claude && claude --version || echo "(claude binary not found)"
-
-          echo ""
-          echo "--- gh CLI auth ---"
-          gh auth status 2>&1 || echo "(gh not authenticated)"
-
-          echo ""
-          echo "--- Environment ---"
-          echo "ARCHITECT_GITHUB_TOKEN set: $([ -n "$ARCHITECT_GITHUB_TOKEN" ] && echo yes || echo no)"
-          echo "MIND_MCP_URL: ${MIND_MCP_URL:-not set}"
-
-          echo ""
-          echo "--- entrypoint.sh last run (process 1) ---"
-          cat /proc/1/cmdline 2>/dev/null | tr '\0' ' ' || echo "(cannot read proc/1)"
-
-          echo ""
-          echo "=== Test session complete — exiting cleanly ==="
-          exit 0
-          SHELL
-          
-          echo "Shell session exited"
+      - name: Open SSH session (tmate)
+        uses: mxschmitt/action-tmate@v3
+        with:
+          # Limit access to the person who triggered the workflow
+          # (their GitHub username) — prevents others from connecting
+          limit-access-to-actor: true
+        # The step completes when you disconnect from the SSH session
+        # or when the job times out (30 minutes, set above)
