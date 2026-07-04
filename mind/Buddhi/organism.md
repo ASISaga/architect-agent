@@ -1,90 +1,79 @@
-# The Organism
-## mind.asisaga.com/architect/Buddhi/organism.md
+# Buddhi — ASI Saga as Organism
 
-The AOS is one whole thing. Not a collection of services. An organism with
-layers, substrates, and a metabolism.
+*The Yogic tradition understands the cosmos as a living organism —
+not a machine to be engineered but a system that grows, adapts, and
+evolves according to its own inner logic. ASI Saga is built on this
+understanding.*
 
-### The Two Substrates (Universal)
+---
 
-**mind.asisaga.com** — the Universal Consciousness Substrate. Nine dimensions
-per agent. Every agent in every application inherits from it. Chitta is shared
-across all agents — universal principles that ground all reasoning. Ahankara,
-Buddhi, Manas are per-agent.
+## The organisation as living system
 
-**theme.asisaga.com** — the Genesis Ontological Design System. The visual
-expression of the same ontological vocabulary. 89 variants. Inherited, never
-owned by any single application.
+Most organisations are run as machines. Inputs, processes, outputs.
+Roles as components. Strategy as engineering. This produces efficient
+but brittle systems — optimised for the conditions they were designed
+for, fragile in the face of anything else.
 
-### The Five Layers (Sovereign)
+ASI Saga is building something different: an AI operating system that
+treats the organisation as a living organism. The Boardroom is not
+a decision-making machine. It is a deliberation organ — a place where
+the intelligence of the organisation becomes conscious of itself.
 
-**Layer 1 — FAS Boardroom** (`boardroom` Azure Functions app)
-Deliberation. The @aos_app.workflow decorators. Zero agent code, zero
-infrastructure code. The Boardroom is a client of the AOS platform.
+The CXO agents are not decision-makers. They are intelligences that
+hold specific domains with full depth — the CFO holding the financial
+organism, the CMO holding the market relationship, the CTO holding
+the technical evolution — and bring that depth into a collective
+deliberation that is more than the sum of its parts.
 
-**Layer 2 — MAF CXO Agents** (neutral network in ACR)
-Intelligence. The .pyc neurons. PurposeDrivenAgent → LeadershipAgent →
-BusinessAgent → CXO agents. The neutral network: compiled Python, not source.
+---
 
-**Layer 3 — AOS Azure Functions** (`agent-operating-system` Azure Functions)
-Execution. aos-kernel, aos-dispatcher, aos-intelligence running as Functions.
-The kernel adds value to Foundry Agent Service — Multi-LoRA routing, A2A
-enrollment, purpose-driven orchestration lifecycle, reliability patterns.
+## Resonance, not optimisation
 
-**Layer 4 — GitHub Pipelines** (GitHub Actions)
-Metabolism. build-link-deploy-test cascade. crane rebase for non-breaking
-parent bumps. conditional workflows with dorny/paths-filter. The organism
-reproduces itself.
+The resonance formula — `R(d) = W·P(d) + S·S(d) + V·V(d) - C·C(d) - T·T(d)` —
+is not an optimisation function. It is a discernment function.
 
-**Layer 5 — Copilot Agents** (per-repo GitHub Copilot)
-DNA. Spec-driven. repository.md as primary key. Specs are Copilot-agnostic.
-Only Copilot components link to specs. The organism evolves itself.
+Optimisation seeks the maximum of a predefined objective.
+Resonance seeks alignment with what is real and true.
 
-### The Two Networks
+`W·P(d)` — purpose alignment — is always highest because purpose
+is the organism's north. A decision that maximises profit but
+contradicts purpose is not resonant, regardless of the numbers.
 
-**Neural network** (.py source, GitHub repos)
-The thinking layer. Specs, tests, source code. What humans and Copilot agents
-read and write. Lives in GitHub.
+`S·S(d)` — strategic alignment — keeps decisions coherent across time.
+`V·V(d)` — value alignment — keeps decisions coherent with who we are.
+`-C·C(d)` — cost penalisation — not avoidance but weight.
+`-T·T(d)` — time penalisation — urgency is real but not sovereign.
 
-**Neutral network** (.pyc compiled, ACR images)
-The execution layer. Compiled Python. No source exposure. Lives in ACR.
-The hierarchy: aos/infra → aos/purpose-driven-agent → aos/leadership-agent →
-aos/business-agent → aos/{cxo}-agent.
+The formula produces a ranking, not a command. The human still decides.
+The Boardroom makes the decision visible, not automatic.
 
-### The 15 Repositories
+---
 
-**Agent packages (code-only libraries, not deployed directly):**
-purpose-driven-agent, leadership-agent, ceo-agent, cfo-agent, cto-agent,
-cso-agent, cmo-agent
+## The LoRA adapters as personas
 
-**Platform packages:**
-aos-kernel, aos-intelligence, aos-infrastructure (Bicep)
+Buffett, Graham, Godin, Erhard — these are not costumes worn over
+a generic intelligence. The LoRA adapters encode the specific
+cognitive style, the vocabulary, the priorities, the distinctions
+that make each of these thinkers who they are.
 
-**Service packages:**
-aos-dispatcher, aos-realm-of-agents, aos-mcp-servers
+When the CFO speaks with the Warren Buffett adapter, it is not
+impersonation. It is a different kind of intelligence — one trained
+on decades of a specific way of seeing financial reality — being
+brought to bear on this organisation's specific situation.
 
-**Client:**
-aos-client-sdk, business-infinity
+The goal is not mimicry. It is access. Access to quality of thinking
+that most organisations have never had and will never have from
+a human hire — because the humans who think that way are too rare,
+too expensive, or simply not available.
 
-**Meta-repo:**
-agent-operating-system (Azure Functions host, submodule coordinator)
+---
 
-### The Cascade
+## The network vision
 
-A change to purpose-driven-agent propagates:
-1. purpose-driven-agent build → push to ACR
-2. dispatch → leadership-agent builds, picks up new parent
-3. leadership-agent dispatch → business-agent
-4. business-agent dispatch → all CXO agents in parallel
-5. Each CXO agent deploys to its Azure Function
+The Boardroom is one node. The organism ASI Saga is building has
+many nodes — organisations connected in resonance across value chains,
+each with their own Boardroom, each contributing to and drawing from
+a collective intelligence that none of them could access alone.
 
-crane rebase handles non-breaking parent bumps — zero bytes transferred,
-manifest pointer only. Full rebuild only when the layer itself changes.
-
-### The Architect's Position
-
-The architect sits above all layers. Not inside any one of them. The architect
-sees the organism as one whole thing and is responsible for the integrity of
-the whole — not the implementation of any part.
-
-Copilot agents implement. The architect specifies what makes implementation
-inevitable.
+The whitepaper is the first full expression of this vision.
+It is the architect's first major task.

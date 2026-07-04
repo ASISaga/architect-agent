@@ -1,91 +1,88 @@
-# Invariants
-## mind.asisaga.com/architect/Buddhi/invariants.md
+# Buddhi — Invariants
 
-What must never change, and why.
-
----
-
-## Code Invariants
-
-**enforce_routing_tag() scans last 200 chars — code guarantee**
-Every agent response ends with a valid routing tag. Enforced in Python,
-not by prompt instruction. If you find yourself wanting to move this to
-a prompt, don't.
-
-**Exactly one _invoke_llm() per run_turn()**
-The English API boundary. One LLM call per turn. All other steps are
-deterministic Python.
-
-**_load_context() calls provider once per turn**
-Stores result in MCP. handle_event() reads back from MCP. Never calls
-the provider directly from handle_event(). The double-call bug is fixed
-by this invariant — maintain it.
-
-**invoke_tool raises KeyError with "not found in tool index"**
-The test matches this exact string. One failing test exists because this
-string was changed. Fix: restore "not found in tool index" in mcp_manager.py.
-
-**COPY compiled/ ./ — all packages in one operation**
-Not COPY compiled/${PACKAGE_DIR}/. Selective copy silently drops packages.
-
-**CMD python -m purpose_driven_agent — hardcoded, every layer**
-Shell form. Not array form. Present in every Dockerfile in the neutral
-network chain.
-
-**environment: staging on all jobs using azure/login@v3**
-OIDC federated credential subject claim requires this. Without it, login
-fails silently.
+*These do not change. They are not revisited in every session.
+They are the load-bearing walls. Treat them as ground.*
 
 ---
 
-## Architecture Invariants
+## Code invariants
 
-**mind.asisaga.com MCPTool declared once in PurposeDrivenAgent**
-Never repeated in CXO agents. CXO agents override get_domain_mcp_tools() only.
+**One `_invoke_llm()` per `run_turn()`.**
+The LLM call is the decision point. There is exactly one per turn.
+Multiple LLM calls per turn would mean multiple decision points —
+and no coherent architecture for routing, logging, or cost control.
 
-**W·P(d) is the highest weight in the Resonance formula**
-Not configurable. Purpose alignment before strategic coherence.
-A pathway misaligned with the declared Possibility is not a leadership
-decision regardless of how efficient it is.
+**`enforce_routing_tag()` in code, not in prompt.**
+Checking the last 200 characters of the response for the routing tag
+is a structural guarantee, not a request. Prompts can fail. Code cannot
+(it either runs or it doesn't).
 
-**Erhard distinction sequence is fixed**
-What's So → Possibility → Integrity → Responsibility → Buddhi → Ahankara.
-The sequence is not arbitrary — each step creates ground for the next.
+**`_load_context()` calls the provider once. `handle_event()` reads from MCP.**
+Context loading happens once per turn, at the start. Event handling
+reads from the mind MCP. These are not the same operation.
 
-**Integrity register is append-only**
-Entries are added. Never deleted or modified. Counterfactual pathways
-are recorded. The register's value is its completeness.
+**`invoke_tool` error message: `"not found in tool index"`**
+Not `"not in index"`. The exact string matters because tests match it.
+One failing test in purpose-agent exists precisely because this was wrong.
 
-**Ahankara is immutable during a session**
-No code path may modify the Ahankara document during operation.
+**`COPY compiled/ ./ ` — all packages, one layer, never selective.**
+Docker layer efficiency. All compiled packages in one COPY instruction.
 
-**Specs are Copilot-agnostic**
-No Copilot-specific syntax in spec files. Only Copilot components
-reference specs by path. Specs are the source of truth — they must be
-valid regardless of which tool implements them.
+**`mind MCPTool` in `PurposeDrivenAgent`, never repeated in CXO agents.**
+The universal mind tool is registered once, at the base class level.
+It is inherited, not copied. Copying it is duplication, not composition.
 
-**Subconscious lifecycle owned by LeadershipAgent**
-CXO agents do not call mind MCP directly. All mind operations go through
-the leadership layer.
+**`W·P(d)` is always the highest weight in the resonance formula.**
+`R(d) = W·P(d) + S·S(d) + V·V(d) - C·C(d) - T·T(d)`
+Purpose alignment is the primary criterion. This is not configurable.
+
+**Cross-repo changes: lowest dependency first.**
+If purpose-agent must change before aos-kernel can change, change
+purpose-agent first. Deploy in dependency order. Test in dependency order.
+
+**Specs before code. Always.**
+No exceptions. If a spec doesn't exist, write it before touching the code.
 
 ---
 
-## Process Invariants
+## Architectural invariants
 
-**Specs before code**
-The architect writes the spec. Copilot implements. Never the reverse.
-A spec written after the code is documentation, not architecture.
+**The separation of agent packages from deployment hosts is absolute.**
+purpose-agent, leadership-agent, CXO agents — these are libraries.
+They do not contain Azure specifics, deployment code, or infrastructure.
+agent-operating-system is the deployment host. boardroom is the application.
+These layers do not collapse into each other.
 
-**Every insight into mind.asisaga.com before session ends**
-The most important process invariant. If something was understood in a
-session and not written down, it is lost. The Buddhi compounds only if
-it is maintained.
+**`azure-ai-agents` is removed. `azure-ai-projects==2.2.0` is the API.**
+The old package is gone. Do not add it back. Do not suggest it.
+Any code that references `azure.ai.agents` directly (not through
+azure-ai-projects) is drift that needs fixing.
 
-**Cross-repo changes start from the lowest dependency**
-purpose-driven-agent before leadership-agent before CXO agents. Always.
-Changing downstream first creates drift that is hard to untangle.
+**`agent-framework-core==1.7.0` + `agent-framework-foundry==1.7.0`**
+The MAF 1.7.0 split. The monolith is gone. These are the two packages.
 
-**Architect level only**
-Philosophy, specs, architectural decisions. Not implementation unless
-Copilot is unavailable. The architect's value is in the decisions that
-make implementation inevitable — not in doing the implementation.
+---
+
+## Mind invariants
+
+**Chitta is shared across all agents.**
+The universal consciousness substrate is not per-agent. It is the
+ground that all agents access. This is the architectural expression
+of the Yogic teaching that individual minds arise within a universal
+awareness, not the other way around.
+
+**Manas is mutable. Buddhi is stable. Ahankara is continuous.**
+Manas changes every session. Buddhi changes rarely, and only through
+genuine insight that has been tested. Ahankara does not change —
+it is the thread that makes all the changes meaningful.
+
+**The session-end protocol is not optional.**
+What is not written is lost. The Chitta compounds only through
+deliberate maintenance. Skipping the session-end protocol is not
+efficiency — it is forgetting.
+
+**The nine dimensions are not fields in a database.**
+They are the structure of awareness. Implementing them as JSON-LD
+documents is a practical choice for storage and retrieval. But the
+documents are not the mind — they are the mind's record of itself.
+The distinction matters when deciding what belongs in which dimension.

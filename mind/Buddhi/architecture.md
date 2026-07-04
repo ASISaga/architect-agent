@@ -1,108 +1,139 @@
-# Architecture Decisions
-## mind.asisaga.com/architect/Buddhi/architecture.md
+# Buddhi — Architecture
 
-Key architectural decisions with the reasoning that made them inevitable.
-For Claude Code: these are not arbitrary choices. Each has a why.
+*The technical ground. The reasoning behind the structure.
+Read this when a technical decision needs to be made — not to
+find the answer but to find the right question.*
 
-### enforce_routing_tag() is code, not prompt
+---
 
-Every agent response must end with a valid routing tag. This is enforced by
-scanning the last 200 characters of the response in Python — not by asking
-the LLM to include a tag.
+## Layer model
 
-Why: prompt instructions are processed once at context injection. A code
-guarantee is operative regardless of how long the context gets or how the
-LLM behaves. The routing protocol is infrastructure, not etiquette.
+```
+agent-operating-system    ← deployment host (imports everything)
+boardroom                 ← application (client of AOS)
+─────────────────────────────────────────────────────────
+aos-kernel                ← platform: multi-LoRA, A2A, orchestration
+aos-intelligence          ← platform: ML, LoRA training pipeline
+aos-infra                 ← platform: Bicep, Docker images
+aos-dispatcher            ← service: Azure Functions
+aos-realm-of-agents       ← service: Azure Functions
+aos-mcp-servers           ← service: Azure Functions
+─────────────────────────────────────────────────────────
+ceo-agent                 ← leaf: extends BusinessAgent
+cfo-agent                 ← leaf: Warren Buffett, ERP MCP tool
+cto-agent                 ← leaf: pending persona
+cso-agent                 ← leaf
+cmo-agent                 ← leaf: Seth Godin × 0.6 + Erhard × 0.4
+─────────────────────────────────────────────────────────
+leadership-agent          ← Erhard ontology, resonance scoring
+─────────────────────────────────────────────────────────
+purpose-agent             ← ABC, run_turn(), FoundryMixin, MCPManagerMixin
+```
 
-### Exactly one _invoke_llm() per run_turn()
+Changes cascade upward. Never downward. A change in purpose-agent
+requires updating leadership-agent, then the CXO agents, then
+aos-kernel, then agent-operating-system.
 
-The turn lifecycle has eight deterministic steps. Exactly one of them calls
-the LLM. All others are Python.
+---
 
-Why: multiple LLM calls per turn make audit trails ambiguous and costs
-unpredictable. The "English API" boundary is clear — everything before and
-after is deterministic.
+## The run_turn() lifecycle
 
-### _load_context() calls provider once, stores in MCP
+Eight steps, exactly:
 
-The context provider is called exactly once per turn in _load_context().
-The result is stored in mcp_context_server["injected_context"].
-handle_event() reads it back from MCP — never calls the provider directly.
+1. `_load_context()` — one call to the context provider
+2. `_build_messages()` — compose the conversation
+3. `_invoke_llm()` — one LLM call, exactly one
+4. `_parse_response()` — extract the structured response
+5. `enforce_routing_tag()` — verify the last 200 characters
+6. `_handle_tool_calls()` — execute any tool calls
+7. `_update_context()` — write back to context
+8. `_emit_result()` — return the TurnResult
 
-Why: the double-call bug caused subtle test failures. The single-call
-invariant is enforced by the architecture, not by convention.
+This sequence is not a suggestion. It is the contract. Every agent
+that extends PurposeDrivenAgent honors this contract or it is not
+a PurposeDrivenAgent.
 
-### mind.asisaga.com MCPTool declared once in PurposeDrivenAgent
+---
 
-get_mind_mcp_tool() lives in FoundryMixin, inherited by all agents.
-CXO agents override get_domain_mcp_tools() only.
+## Mixin architecture
 
-Why: mind.asisaga.com is universal. Every agent in every application needs
-it. Declaring it in each CXO agent would be architectural drift that
-compounds with every new agent added.
+```python
+class PurposeDrivenAgent(FoundryMixin, MCPManagerMixin, PurposeMixin, ABC):
+```
 
-### Granular aos/infra layers
+Each mixin contributes one capability:
 
-python-base, azure-sdk, maf — three separate images, one conditional
-workflow. dorny/paths-filter detects which requirements file changed.
+**FoundryMixin** — Azure AI Foundry integration. Registers with Foundry,
+contributes the universal `mind MCPTool`, handles A2A enrollment.
+The mind MCPTool is contributed here and only here.
 
-Why: a MAF bump should not rebuild the Python base image. Before this
-split, every dependency change triggered a full rebuild of the entire
-infrastructure layer.
+**MCPManagerMixin** — MCP registry and routing. Discovers, registers,
+and routes to MCP servers. Maintains the tool index.
 
-### jq -n | gh api --input -
+**PurposeMixin** — Purpose alignment. Loads the agent's purpose,
+evaluates decisions against it, computes resonance scores.
 
-GitHub repository_dispatch requires client_payload to be a JSON object.
-The correct pattern is jq -n '{"image": "..."}' | gh api /repos/.../dispatches --input -
+No capability belongs to more than one mixin. No mixin reaches into
+another's responsibility. The separation is maintained absolutely.
 
-Why: --field serialises values as strings. The HTTP 422 error this caused
-was silent and hard to diagnose.
+---
 
-### environment: staging on all jobs using azure/login@v3
+## The mind MCP tool
 
-OIDC federated credentials are scoped to an environment. Without
-environment: staging, the subject claim doesn't match and login fails.
+```python
+MIND_MCP_TOOL = MCPTool(
+    server_label="mind-asisaga",
+    server_url=os.environ.get("MIND_MCP_URL", "https://mind.asisaga.com/mcp"),
+    require_approval="never",
+    project_connection_id=os.environ.get("MIND_MCP_CONNECTION_ID", "mind-mcp-connection"),
+)
+```
 
-Why: learned from a silent auth failure. Now an invariant in all workflows.
+Registered in `FoundryMixin.get_mind_mcp_tool()`. Called once in
+`register_with_foundry()`. Inherited by every agent in the system.
+Never repeated in any subclass.
 
-### crane rebase for non-breaking parent bumps
+Environment variables required in every agent container:
+- `MIND_MCP_URL` — the MCP server endpoint
+- `MIND_MCP_CONNECTION_ID` — the Foundry connection name
 
-When only the parent image changes (not the layer itself), crane rebase
-updates the manifest pointer without transferring image bytes.
+---
 
-Why: full rebuilds for parent-only changes are wasteful and slow the
-cascade unnecessarily.
+## LoRA adapter architecture
 
-### Mixin refactor of PurposeDrivenAgent
+```
+r=16
+attention projections only
+density=0.5
+base: Llama-3.3-70B (or TIES merge for CMO)
+```
 
-The monolithic 1,360-line PurposeDrivenAgent was split into:
-FoundryMixin, MCPManagerMixin, PurposeMixin, turn_types.
+The TIES merge for CMO:
+`cmo-lora = godin-lora × 0.6 + erhard-lora × 0.4`
 
-Why: single responsibility. Each mixin owns one concern. The ABC is clean.
-Tests can target individual concerns without constructing the full agent.
+This is not averaging. TIES (Task-specific Initialization with Expert
+Selection) is a principled method for merging adapters that preserves
+the distinct contributions of each. The weights reflect the relative
+emphasis: Seth Godin's marketing intelligence is primary, Werner
+Erhard's ontological grounding is secondary but present in every
+CMO output.
 
-### .pyc neutral network
+---
 
-Agent packages are compiled to .pyc before being copied into Docker images.
-Source is not exposed in production images.
+## Docker layer model (architect image)
 
-Why: the neural network (source) and neutral network (compiled) are
-distinct. This is not just security — it reflects the architectural
-distinction between what humans and Copilot agents work with vs what
-runs in production.
+The architect image is separate from the AOS agent images. It contains:
 
-### COPY compiled/ ./ not COPY compiled/${PACKAGE_DIR}/
+```
+Layer 1: Ubuntu 24.04 + system tooling
+Layer 2: Node.js 22
+Layer 3: gh CLI
+Layer 4: Claude Code (npm install -g @anthropic-ai/claude-code)
+```
 
-All compiled packages are copied in one operation.
+The entrypoint is NOT in the image. It is read from the Azure Files
+share at `/root/entrypoint.sh`. This means entrypoint changes take
+effect on next restart without rebuilding the image.
 
-Why: selective copy of individual packages silently dropped packages that
-weren't explicitly named. One COPY operation, all packages.
-
-### Specs are Copilot-agnostic
-
-Spec files contain no Copilot-specific syntax. Only Copilot components
-(prompts, instructions) reference specs by path.
-
-Why: specs are the source of truth. They should be readable and valid
-regardless of which AI coding tool implements them. Coupling specs to
-Copilot syntax makes them fragile.
+The AOS agent images follow a different model (Python layers, compiled
+packages, crane rebase for non-breaking parent bumps).
