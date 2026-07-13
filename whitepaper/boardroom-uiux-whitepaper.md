@@ -3,7 +3,7 @@
 ## A UI/UX Design Whitepaper for the Boardroom Product
 
 *Companion to: The Boardroom Conversation Mechanism (Architecture Reference)*
-*Version 2.1 — Design Rationale and Language Specification*
+*Version 2.2 — Design Rationale and Language Specification*
 
 ---
 
@@ -23,9 +23,13 @@ reviewing a decision made months ago, authorizing something consequential
 today, extending how much it no longer needs to ask permission for — happens
 in the same conversational relationship, addressed at whatever altitude the
 moment calls for. Nothing in this document proposes a second interface for
-any of those activities. Where earlier thinking reached for a dashboard, a
-form, or a settings page, the corrected answer is: that is a conversation,
-rendered.
+any of those activities. Where earlier thinking reached for a form or a
+settings page, the corrected answer is: that is a conversation, rendered.
+Where earlier thinking reached for a dashboard, the correction is narrower:
+a dashboard may still exist, as one more rendering structured data can
+take — but only as a deep link the conversation leads to, never as a
+standing destination alongside it. Section 5 specifies the distinction
+precisely.
 
 Within that single conversational model, efficiency is not sacrificed —
 it is carried by deep links: actionable references to specific prior
@@ -196,6 +200,19 @@ a given turn, not the underlying model:
 None of these stages replaces conversation with something else. Each is a
 richer way the same conversational turn can be perceived.
 
+### 4.4 Single objects and aggregates are both renderings
+
+Everything above describes rendering a single structured object — one
+model, one decision, one citation. Some questions are not about a single
+object but about many at once: every current delegation, every pending
+authorization, resonance trends across a quarter, the shape of the org
+chart. The rendering suited to that kind of question is an aggregate
+view — what would ordinarily be called a dashboard — and it is still
+exactly the same relationship as everything else in this section:
+structured data, rendered for a reader, at whatever richness the moment
+calls for. What distinguishes it from the rest of this section is not its
+content but how it is reached, which Section 5.4 specifies.
+
 ---
 
 ## 5. Deep Links: Efficiency as Compact Rendering
@@ -227,7 +244,9 @@ object does this moment actually need:
 - **Jump-to** — the reference takes the human to the exact point in the
   conversational continuum it names, with an immediate, effortless way
   back. Used when the referenced matter genuinely needs its original
-  context restored, not just its headline.
+  context restored, not just its headline — including, as Section 5.4
+  specifies, when what is being restored is not one prior turn but an
+  aggregate view across many.
 
 Neither behavior is a departure from "one interface." Both remain inside
 the same continuum Section 3 specifies — the first without ever leaving the
@@ -236,24 +255,53 @@ into a different kind of screen.
 
 ### 5.3 Where this is required
 
-Three places in this document already depend on it, and are updated
-below to say so directly:
+Four places in this document already depend on it, and are updated below
+to say so directly:
 
-- **Delegation** (Section 6) — a citation of standing authorization
+- **Delegation** (Section 7) — a citation of standing authorization
   ("as delegated in June") is a deep link to the exact turn that granted
   it, making delegation self-auditing through the conversation itself.
-- **Returning after absence** (Section 7) — a human re-entering a mature,
+- **Returning after absence** (Section 8) — a human re-entering a mature,
   low-engagement relationship is oriented through a short turn whose
   individual references are each a deep link to the one matter, if any,
   that actually needs them — not a document to read in full.
-- **Explainability** (Section 11) — an answer to "why" is a deep link to
+- **Aggregate views** (Section 5.4) — a request to see everything at once
+  — every current delegation, the full pending queue, the org chart — is
+  answered with a link to a dashboard rendering, never with either an
+  unreadable wall of inline text or a standing screen the human had to
+  already know existed.
+- **Explainability** (Section 12) — an answer to "why" is a deep link to
   the actual precedent it draws on, not a description of one.
 
 Available from the very first rendering stage in Section 4.3 — a plain-text
 turn can already carry a working link — and growing richer, as inline
 unfurling, once MCP Apps rendering exists.
 
+### 5.4 Dashboards are jump-to destinations, never a home screen
+
+An aggregate rendering — every current delegation, the full pending queue,
+resonance trends, the org chart — is real, useful, and explicitly permitted
+in this design language, on one condition: it is reached exclusively as a
+jump-to deep link originating from something said in conversation, never as
+a persistent navigation item, a default landing view, or a destination a
+human can arrive at without a conversational reason to be there.
+
+Concretely: Boardroom does not present a dashboard because a human opened
+the product. It presents one because a human asked to see everything
+delegated at once, or because a catch-up turn (Section 8) determined a
+queue was too long to read inline and a link to see it in full was the
+more useful rendering than a wall of text. Either way, the human arrived by
+following a link out of something said, and the way back is the same
+conversation, exactly as it is for any other jump-to destination in
+Section 5.2.
+
+This is the corrected form of a dashboard, not its rejection. What was
+wrong in an earlier draft was never the aggregate view itself — it was
+making it a standing part of the interface a human could reach without
+Boardroom, or a conversation, ever being involved.
+
 ---
+
 
 ## 6. Authorization as Dialogue
 
@@ -311,6 +359,19 @@ paraphrase:
 > March. [Vendor renewals under standard terms](), since June. Everything
 > else still comes to you first.*
 
+Two items, listed inline with individual links, is the right rendering
+here — reading two lines is faster than a detour. A year into a mature
+relationship, the same question may have a different right answer:
+
+> **Human** — *Remind me what I've already delegated.*
+>
+> **Boardroom** — *Nine standing delegations across finance, marketing,
+> and vendor management now — [see them all](), organized by domain.*
+
+Nothing about the question changed. What changed is how much there was to
+answer it with, and the rendering followed that, exactly as Section 5.4
+specifies.
+
 The trust boundary, at any moment, is simply whatever Boardroom has been
 told and has not been told otherwise — a fact in memory, not a
 configuration a human must go somewhere separate to inspect or maintain,
@@ -351,6 +412,18 @@ actually needs them:
 
 Reading that turn takes seconds. Acting on the one thing that needs a
 human takes one link, not a search.
+
+After a longer absence, the same orienting turn faces a different
+rendering decision — enough has happened that listing it inline would
+recreate the wall of text this pattern exists to avoid:
+
+> **Boardroom** — *Since you were last here, three weeks of activity —
+> [the full summary](), two items waiting on you within it.*
+
+The choice between listing a handful of links and offering one link to an
+aggregate view is not a separate design pattern; it is Section 4.4's
+single-object-versus-aggregate distinction, applied to the one moment in
+the product where it matters most.
 
 ---
 
@@ -484,8 +557,8 @@ first axis and is not a maturity stage of its own.
 
 | Stage | Rendering available |
 |---|---|
-| Now | Text, protocol-to-badge translation, and working deep links (jump-to) |
-| Next | Inline MCP Apps — resonance comparisons, precedent views, authorization artifacts, and deep-link unfurling, all rendered as turns |
+| Now | Text, protocol-to-badge translation, working deep links (jump-to), and simple aggregate views (a plain structured list, reached the same way) |
+| Next | Inline MCP Apps — resonance comparisons, precedent views, authorization artifacts, deep-link unfurling, and richer interactive dashboards, all rendered as turns |
 | Later | Multi-modal exchange, including spoken conversation |
 
 **Delegation** — how much of the conversation a human is present for:
