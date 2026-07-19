@@ -1,0 +1,89 @@
+name: Stop Architect
+
+# Reliable, idempotent stop. Safe to run repeatedly — checks state
+# before acting. Deactivates the revision entirely (not just scale-
+# to-zero) to guarantee zero compute cost while stopped — this is
+# the same manual step that was used earlier to halt unexpected
+# billing, now made into a one-click, auditable action.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  stop:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Find latest revision
+        id: revision
+        run: |
+          REVISION=$(az containerapp show \
+            --name architect \
+            --resource-group rg-aos-staging \
+            --query properties.latestRevisionName -o tsv)
+
+          if [ -z "$REVISION" ]; then
+            echo "::warning::No revision found — nothing to stop"
+            exit 0
+          fi
+
+          echo "revision=$REVISION" >> "$GITHUB_OUTPUT"
+          echo "Latest revision: $REVISION"
+
+      - name: Check current state
+        id: state
+        if: steps.revision.outputs.revision != ''
+        run: |
+          ACTIVE=$(az containerapp revision show \
+            --name architect \
+            --resource-group rg-aos-staging \
+            --revision "${{ steps.revision.outputs.revision }}" \
+            --query properties.active -o tsv)
+
+          echo "active=$ACTIVE" >> "$GITHUB_OUTPUT"
+          echo "Currently active: $ACTIVE"
+
+      - name: Deactivate revision
+        if: steps.revision.outputs.revision != '' && steps.state.outputs.active == 'true'
+        run: |
+          echo "Deactivating revision ${{ steps.revision.outputs.revision }}"
+          az containerapp revision deactivate \
+            --name architect \
+            --resource-group rg-aos-staging \
+            --revision "${{ steps.revision.outputs.revision }}"
+          echo "Deactivated — zero compute cost while stopped"
+
+      - name: Already stopped
+        if: steps.revision.outputs.revision != '' && steps.state.outputs.active == 'false'
+        run: |
+          echo "Revision already deactivated — nothing to do"
+
+      - name: Confirm final state
+        if: steps.revision.outputs.revision != ''
+        run: |
+          az containerapp revision show \
+            --name architect \
+            --resource-group rg-aos-staging \
+            --revision "${{ steps.revision.outputs.revision }}" \
+            --query "{active:properties.active, running:properties.runningState}" \
+            -o table
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Architect stopped" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Revision: ${{ steps.revision.outputs.revision || 'none found' }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "No compute cost while deactivated." >> "$GITHUB_STEP_SUMMARY"
+          echo "Run **Start Architect** workflow to bring it back up." >> "$GITHUB_STEP_SUMMARY"

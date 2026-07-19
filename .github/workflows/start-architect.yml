@@ -1,0 +1,108 @@
+name: Start Architect
+
+# Reliable, idempotent start. Safe to run repeatedly — checks state
+# before acting so it never errors on "already running" or "already
+# activated". Use this instead of manually running az commands from
+# Cloud Shell when you just want the container up.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  start:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Find latest revision
+        id: revision
+        run: |
+          REVISION=$(az containerapp show \
+            --name architect \
+            --resource-group rg-aos-staging \
+            --query properties.latestRevisionName -o tsv)
+
+          if [ -z "$REVISION" ]; then
+            echo "::error::No revision found — the architect Container App may not be deployed"
+            exit 1
+          fi
+
+          echo "revision=$REVISION" >> "$GITHUB_OUTPUT"
+          echo "Latest revision: $REVISION"
+
+      - name: Check current state
+        id: state
+        run: |
+          STATE=$(az containerapp revision show \
+            --name architect \
+            --resource-group rg-aos-staging \
+            --revision "${{ steps.revision.outputs.revision }}" \
+            --query "{active:properties.active, health:properties.healthState, running:properties.runningState}" \
+            -o json)
+
+          echo "Current state: $STATE"
+
+          ACTIVE=$(echo "$STATE" | jq -r '.active')
+          RUNNING=$(echo "$STATE" | jq -r '.running')
+
+          echo "active=$ACTIVE" >> "$GITHUB_OUTPUT"
+          echo "running=$RUNNING" >> "$GITHUB_OUTPUT"
+
+      - name: Activate revision (if deactivated)
+        if: steps.state.outputs.active == 'false'
+        run: |
+          echo "Revision is deactivated — activating"
+          az containerapp revision activate \
+            --name architect \
+            --resource-group rg-aos-staging \
+            --revision "${{ steps.revision.outputs.revision }}"
+
+      - name: Restart revision (if stopped but active)
+        if: steps.state.outputs.active == 'true' && steps.state.outputs.running == 'Stopped'
+        run: |
+          echo "Revision is active but stopped — restarting"
+          az containerapp revision restart \
+            --name architect \
+            --resource-group rg-aos-staging \
+            --revision "${{ steps.revision.outputs.revision }}"
+
+      - name: Already running
+        if: steps.state.outputs.running == 'Running' || steps.state.outputs.running == 'RunningAtMaxScale'
+        run: |
+          echo "Revision is already running — nothing to do"
+
+      - name: Poll until running (up to 2 minutes)
+        run: |
+          for i in $(seq 1 24); do
+            RUNNING=$(az containerapp revision show \
+              --name architect \
+              --resource-group rg-aos-staging \
+              --revision "${{ steps.revision.outputs.revision }}" \
+              --query properties.runningState -o tsv)
+            echo "[$i/24] runningState: $RUNNING"
+            if [ "$RUNNING" = "Running" ] || [ "$RUNNING" = "RunningAtMaxScale" ]; then
+              echo "✅ Architect is up"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::warning::Did not reach Running state within 2 minutes — check diagnose-architect workflow"
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Architect start requested" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Revision: ${{ steps.revision.outputs.revision }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Connect via: Claude mobile app → Code tab" >> "$GITHUB_STEP_SUMMARY"
+          echo "If first time: exec in and run \`claude login\`" >> "$GITHUB_STEP_SUMMARY"
