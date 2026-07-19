@@ -172,11 +172,10 @@ echo ""
 # Subsequent starts: already authenticated from persisted credentials.
 # ---------------------------------------------------------------------
 if [ ! -f ~/.claude/.credentials.json ]; then
-  echo "Claude Code: NOT authenticated — credentials.json absent"
-  echo "      First-time setup required: run 'claude login' after connecting"
-  echo "      NOTE: Remote Control may not accept connections until login is complete"
+  echo "Claude Code: NOT authenticated — .credentials.json absent"
+  echo "      First-time setup required: exec in and run 'claude login'"
 else
-  echo "Claude Code: authenticated — credentials.json present"
+  echo "Claude Code: authenticated — .credentials.json present"
 fi
 
 # ---------------------------------------------------------------------
@@ -209,11 +208,52 @@ fi
 #    can be exec'd into to run `claude login` once. After login
 #    succeeds, restart the revision — this branch will no longer be
 #    taken since credentials.json will be present.
+#
+#    CRITICAL: --remote-control requires a genuine attached TTY.
+#    Diagnosed 2026-07-19: when launched via `runuser ... &` with no
+#    controlling terminal, Claude Code silently misbehaves — it falls
+#    into a --print-mode-like path expecting piped stdin, fails
+#    immediately with "Input must be provided either through stdin or
+#    as a prompt argument when using --print", and exits. This is not
+#    documented but confirmed by direct testing: running the identical
+#    command interactively (real TTY attached via az containerapp
+#    exec) works correctly and starts a genuine Remote Control session.
+#
+#    Fix: wrap the launch with `script`, which allocates a pseudo-TTY
+#    (PTY) and runs the command inside it — making Claude Code believe
+#    it has a real terminal even though this is a non-interactive
+#    background bootstrap process. `-qc` = quiet (no script's own
+#    banner/logging chatter), run the given command. Output still goes
+#    to /dev/null via -f /dev/null... actually we redirect script's
+#    own transcript to /dev/null since we don't need a session log,
+#    only the PTY allocation side effect.
 # ---------------------------------------------------------------------
 echo "=== Starting Claude Code (Remote Control) ==="
 
 id architect &>/dev/null || useradd -m -s /bin/bash architect
 chmod o+rx /root
+
+# CRITICAL — diagnosed 2026-07-19: Claude Code, when run as the
+# 'architect' user, reads/writes its OWN .claude directory at
+# /home/architect/.claude/ (not /root/.claude/, despite ownership
+# fixes there). /home/architect is on the container's LOCAL ephemeral
+# filesystem, NOT the persistent Azure Files share mounted at /root.
+# This meant onboarding state (theme selection, workspace trust
+# acknowledgment, bypass-permissions acceptance) was silently lost on
+# every single container restart, causing the interactive first-run
+# prompts to reappear every time — even though /root/.claude/
+# (credentials, our static settings.json) persisted correctly.
+#
+# Fix: make /home/architect/.claude/ itself live on the persistent
+# share, by relocating it under /root (already persistent) and
+# symlinking. This must happen before Claude Code's first run so
+# whatever it writes during onboarding lands on the persistent share.
+mkdir -p /root/architect-claude-home
+chown architect:architect /root/architect-claude-home
+rm -rf /home/architect/.claude 2>/dev/null || true
+ln -sfn /root/architect-claude-home /home/architect/.claude
+chown -h architect:architect /home/architect/.claude
+
 chown -R architect:architect /root/.claude 2>/dev/null || true
 
 if [ ! -f /root/.claude/.credentials.json ]; then
@@ -228,7 +268,18 @@ if [ ! -f /root/.claude/.credentials.json ]; then
 fi
 
 CLAUDE_BIN=$(which claude)
-runuser -u architect -- "$CLAUDE_BIN" --dangerously-skip-permissions --remote-control &
+
+if command -v script &>/dev/null; then
+  echo "Allocating pseudo-TTY via 'script' for Claude Code Remote Control"
+  runuser -u architect -- script -qc \
+    "$CLAUDE_BIN --dangerously-skip-permissions --remote-control" \
+    /dev/null &
+else
+  echo "WARNING: 'script' not found — launching without a PTY."
+  echo "  Remote Control may misbehave (see 2026-07-19 diagnosis above)."
+  runuser -u architect -- "$CLAUDE_BIN" --dangerously-skip-permissions --remote-control &
+fi
+
 CLAUDE_PID=$!
 echo "Claude Code started as 'architect' user (PID $CLAUDE_PID)"
 set +e  # disable exit-on-error so a non-zero Claude Code exit doesn't kill this script
