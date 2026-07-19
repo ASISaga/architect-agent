@@ -198,15 +198,34 @@ fi
 #    Claude Code refuses --dangerously-skip-permissions as root.
 #    Drop privileges to the 'architect' user just for the claude
 #    process. runuser works without a TTY, unlike su.
+#
+#    If credentials are absent, Claude Code's --remote-control fails
+#    fast (falls into --print mode expecting piped input, then exits).
+#    That produces an unrecoverable crash-loop: the container never
+#    stays alive long enough for `claude login` to be run interactively.
+#
+#    So: if unauthenticated, skip starting Claude Code entirely and
+#    idle instead. This keeps the container alive indefinitely so it
+#    can be exec'd into to run `claude login` once. After login
+#    succeeds, restart the revision — this branch will no longer be
+#    taken since credentials.json will be present.
 # ---------------------------------------------------------------------
 echo "=== Starting Claude Code (Remote Control) ==="
 
-# Create non-root user if not already present (idempotent)
 id architect &>/dev/null || useradd -m -s /bin/bash architect
-
-# Ensure architect user can read /root (the Azure Files mount)
 chmod o+rx /root
 chown -R architect:architect /root/.claude 2>/dev/null || true
+
+if [ ! -f /root/.claude/credentials.json ]; then
+  echo ""
+  echo "=== IDLING — Claude Code not authenticated ==="
+  echo "Run 'claude login' via: az containerapp exec --name architect"
+  echo "  --resource-group rg-aos-staging --command /bin/bash"
+  echo "Then run: claude login"
+  echo "Container will stay alive idling until then."
+  echo ""
+  sleep infinity
+fi
 
 CLAUDE_BIN=$(which claude)
 runuser -u architect -- "$CLAUDE_BIN" --dangerously-skip-permissions --remote-control &
