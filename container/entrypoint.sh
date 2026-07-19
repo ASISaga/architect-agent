@@ -171,7 +171,7 @@ echo ""
 # then: claude login
 # Subsequent starts: already authenticated from persisted credentials.
 # ---------------------------------------------------------------------
-if [ ! -f ~/.claude/credentials.json ]; then
+if [ ! -f ~/.claude/.credentials.json ]; then
   echo "Claude Code: NOT authenticated — credentials.json absent"
   echo "      First-time setup required: run 'claude login' after connecting"
   echo "      NOTE: Remote Control may not accept connections until login is complete"
@@ -216,7 +216,7 @@ id architect &>/dev/null || useradd -m -s /bin/bash architect
 chmod o+rx /root
 chown -R architect:architect /root/.claude 2>/dev/null || true
 
-if [ ! -f /root/.claude/credentials.json ]; then
+if [ ! -f /root/.claude/.credentials.json ]; then
   echo ""
   echo "=== IDLING — Claude Code not authenticated ==="
   echo "Run 'claude login' via: az containerapp exec --name architect"
