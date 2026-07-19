@@ -231,8 +231,10 @@ CLAUDE_BIN=$(which claude)
 runuser -u architect -- "$CLAUDE_BIN" --dangerously-skip-permissions --remote-control &
 CLAUDE_PID=$!
 echo "Claude Code started as 'architect' user (PID $CLAUDE_PID)"
+set +e  # disable exit-on-error so a non-zero Claude Code exit doesn't kill this script
 wait $CLAUDE_PID
 CLAUDE_EXIT=$?
+set -e  # re-enable for the rest of the script
 echo "Claude Code exited (PID $CLAUDE_PID) with code $CLAUDE_EXIT"
 
 # If Claude Code exited (for any reason — crash, --print fallback, etc.),
