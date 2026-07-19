@@ -232,4 +232,15 @@ runuser -u architect -- "$CLAUDE_BIN" --dangerously-skip-permissions --remote-co
 CLAUDE_PID=$!
 echo "Claude Code started as 'architect' user (PID $CLAUDE_PID)"
 wait $CLAUDE_PID
-echo "Claude Code exited (PID $CLAUDE_PID)"
+CLAUDE_EXIT=$?
+echo "Claude Code exited (PID $CLAUDE_PID) with code $CLAUDE_EXIT"
+
+# If Claude Code exited (for any reason — crash, --print fallback, etc.),
+# don't let the container exit too. Idle instead so it stays exec-able
+# for diagnosis rather than crash-looping indefinitely.
+echo ""
+echo "=== IDLING — Claude Code exited unexpectedly (code $CLAUDE_EXIT) ==="
+echo "Container will stay alive for diagnosis via:"
+echo "  az containerapp exec --name architect --resource-group rg-aos-staging --command /bin/bash"
+echo ""
+sleep infinity
