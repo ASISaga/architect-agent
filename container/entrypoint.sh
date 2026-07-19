@@ -5,11 +5,17 @@ echo "=== AOS Architect — initialising ==="
 
 # ---------------------------------------------------------------------
 # 1. GitHub auth
+# TEMPORARY: auth failure is non-fatal — repos are already cloned on
+# the persistent share, so a bad/expired token should not block Claude
+# Code from starting. Revisit once the token is refreshed.
 # ---------------------------------------------------------------------
 if [ -n "${ARCHITECT_GITHUB_TOKEN:-}" ]; then
-  echo "${ARCHITECT_GITHUB_TOKEN}" | gh auth login --with-token
-  gh auth setup-git
-  echo "GitHub: authenticated"
+  if echo "${ARCHITECT_GITHUB_TOKEN}" | gh auth login --with-token 2>&1; then
+    gh auth setup-git
+    echo "GitHub: authenticated"
+  else
+    echo "WARNING: GitHub auth failed — continuing without it (repos already cloned)"
+  fi
 else
   echo "WARNING: ARCHITECT_GITHUB_TOKEN not set — gh CLI will not authenticate"
 fi
@@ -40,7 +46,10 @@ cp "$CONTAINER_DIR/CLAUDE.md" ~/CLAUDE.md
 cp "$CONTAINER_DIR/ARCHITECT-CONTEXT.md" ~/ARCHITECT-CONTEXT.md
 
 # ---------------------------------------------------------------------
-# 4. Clone / update ecosystem repos from repos.txt
+# 4. Clone / update ecosystem repos from ASISaga/.gitmodules
+#
+# .gitmodules is the authoritative repo list — maintained by the
+# ecosystem root repository, not duplicated in a separate file.
 #
 # Each repo is handled safely:
 # - Clean + behind upstream → fast-forward merge
@@ -52,14 +61,30 @@ cp "$CONTAINER_DIR/ARCHITECT-CONTEXT.md" ~/ARCHITECT-CONTEXT.md
 echo ""
 echo "=== Ecosystem sync ==="
 
-while IFS= read -r repo; do
+# Parse submodule URLs from ASISaga/.gitmodules — the authoritative
+# repo list at the workspace root. ASISaga is the root repository;
+# all ecosystem repos are submodules within it. The bootstrap runs
+# from ~/ASISaga/ so .gitmodules is in the current directory.
+GITMODULES=".gitmodules"
+
+if [ ! -f "$GITMODULES" ]; then
+  echo "  WARNING: .gitmodules not found in $(pwd)"
+  echo "  Expected the bootstrap to run from ~/ASISaga/ (the root repo)"
+fi
+
+if [ -f "$GITMODULES" ]; then
+  REPOS=$(grep '^	*url' "$GITMODULES" | sed 's|.*github.com/ASISaga/||; s|\.git.*$||; s|[[:space:]]||g')
+else
+  REPOS=""
+fi
+
+for repo in $REPOS; do
   [ -z "$repo" ] && continue
   [ "$repo" = "architect-agent" ] && continue  # already handled above
 
   if [ ! -d "$repo" ]; then
-    echo "Cloning $repo"
-    gh repo clone "ASISaga/$repo" "$repo" || \
-      echo "  FAILED — not found or inaccessible"
+    echo "  $repo: cloning"
+    gh repo clone "ASISaga/$repo" "$repo" -- --recurse-submodules --quiet       || echo "  $repo: WARNING — clone failed, continuing"
     continue
   fi
 
@@ -95,16 +120,11 @@ while IFS= read -r repo; do
       echo "  $repo: up to date"
     else
       git merge --ff-only "@{u}" --quiet
+      git submodule update --init --recursive --quiet || true
       echo "  $repo: updated ($behind commit(s))"
     fi
-  )
-done < "$CONTAINER_DIR/repos.txt"
-
-# Sync submodules of agent-operating-system
-if [ -d agent-operating-system/.git ]; then
-  (cd agent-operating-system && \
-    git submodule update --init --recursive --quiet) || true
-fi
+  ) || echo "  $repo: WARNING — sync failed, continuing"
+done
 
 cd ~
 
