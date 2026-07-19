@@ -267,7 +267,14 @@ if [ ! -f /root/.claude/.credentials.json ]; then
   sleep infinity
 fi
 
+echo "DEBUG: PATH is: $PATH"
+echo "DEBUG: whoami is: $(whoami)"
 CLAUDE_BIN=$(which claude)
+echo "DEBUG: CLAUDE_BIN resolved to: [$CLAUDE_BIN]"
+ls -la "$CLAUDE_BIN" 2>&1 || echo "DEBUG: CLAUDE_BIN path does not exist or is not accessible"
+
+echo "DEBUG: architect user PATH: $(runuser -u architect -- printenv PATH 2>&1)"
+echo "DEBUG: architect user which claude: $(runuser -u architect -- which claude 2>&1)"
 
 if command -v script &>/dev/null; then
   echo "Allocating pseudo-TTY via 'script' for Claude Code Remote Control"
