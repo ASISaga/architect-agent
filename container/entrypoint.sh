@@ -287,12 +287,45 @@ chown -h architect:architect /home/architect/.claude.json
 
 chown -R architect:architect /root/.claude 2>/dev/null || true
 
-if [ ! -f /root/.claude/.credentials.json ]; then
+# ---------------------------------------------------------------------
+# CRITICAL FIX — credentials location mismatch, found on final review.
+#
+# Two separate .claude directories exist:
+#   /root/.claude/                 — written to if `claude login` is
+#                                     ever run as root (e.g. manually,
+#                                     via az containerapp exec as root)
+#   /root/architect-claude-home/   — symlinked to /home/architect/.claude,
+#                                     which is what the 'architect' user
+#                                     (who actually runs Claude Code)
+#                                     reads from at runtime
+#
+# These are NOT the same file. A root-run `claude login` writes
+# credentials that the architect user's Claude Code process will never
+# see, causing it to appear unauthenticated even after a successful
+# login — because it's checking/using a different .claude entirely.
+#
+# Fix: if root's .claude/.credentials.json exists but the architect
+# user's persistent one doesn't, copy it across once. This makes a
+# root-run `claude login` (the natural thing to do when exec'd in as
+# root, which az containerapp exec defaults to) work correctly for
+# the architect user's actual runtime, without requiring the extra,
+# easy-to-miss step of switching to the architect user before login.
+# ---------------------------------------------------------------------
+if [ -f /root/.claude/.credentials.json ] && [ ! -f /root/architect-claude-home/.credentials.json ]; then
+  echo "Found root-authenticated credentials — copying to architect user's persistent home"
+  cp /root/.claude/.credentials.json /root/architect-claude-home/.credentials.json
+  chown architect:architect /root/architect-claude-home/.credentials.json
+fi
+
+if [ ! -f /root/architect-claude-home/.credentials.json ]; then
   echo ""
   echo "=== IDLING — Claude Code not authenticated ==="
   echo "Run 'claude login' via: az containerapp exec --name architect"
   echo "  --resource-group rg-aos-staging --command /bin/bash"
   echo "Then run: claude login"
+  echo "(This will authenticate as root; entrypoint.sh copies the"
+  echo " credentials to the architect user's persistent home"
+  echo " automatically on next restart.)"
   echo "Container will stay alive idling until then."
   echo ""
   sleep infinity
