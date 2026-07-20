@@ -214,6 +214,114 @@ jobs:
             -o jsonc || echo "  ⚠️  Could not fetch deployment operation details"
           echo ""
 
+      - name: Remote Control connectivity diagnostic (in-container)
+        run: |
+          echo "## Remote Control connectivity diagnostic"
+          echo ""
+          echo "Diagnosed 2026-07-20: Claude Code's --remote-control process"
+          echo "can be genuinely alive (confirmed via ps aux) while the mobile"
+          echo "app's Code tab shows no session at all. Since the process"
+          echo "itself isn't crashing, the likely cause is somewhere between"
+          echo "the process and Anthropic's Remote Control relay — most"
+          echo "plausibly outbound network connectivity, DNS resolution, or"
+          echo "session registration. This section checks all three via a"
+          echo "one-shot exec into the running container."
+          echo ""
+
+          REVISION=$(az containerapp show \
+            --name architect \
+            --resource-group rg-aos-staging \
+            --query properties.latestRevisionName -o tsv 2>/dev/null || true)
+
+          if [ -z "$REVISION" ]; then
+            echo "  ⚠️  No revision found — skipping in-container checks"
+          else
+            RUNNING=$(az containerapp revision show \
+              --name architect \
+              --resource-group rg-aos-staging \
+              --revision "$REVISION" \
+              --query properties.runningState -o tsv 2>/dev/null || true)
+
+            if [ "$RUNNING" != "Running" ] && [ "$RUNNING" != "RunningAtMaxScale" ]; then
+              echo "  ⚠️  Revision '$REVISION' is not currently running ($RUNNING)"
+              echo "     Start it first (Start Architect workflow), then re-run this diagnostic."
+            else
+              echo "  Revision '$REVISION' is running — attempting exec-based checks"
+              echo ""
+
+              # az containerapp exec requires an interactive TTY for its
+              # WebSocket handshake in most CLI versions, which GitHub
+              # Actions runners do not have. Rather than fight that
+              # constraint, this diagnostic runs each check as a discrete,
+              # non-interactive command via 'az containerapp exec --command',
+              # capturing stdout directly. If the CLI version in use still
+              # requires a TTY even for single commands, each check below
+              # will report that plainly rather than hanging the workflow.
+
+              echo "### Claude Code process check"
+              timeout 20 az containerapp exec \
+                --name architect \
+                --resource-group rg-aos-staging \
+                --revision "$REVISION" \
+                --command "ps aux" 2>&1 | grep -i claude || echo "  (no claude process found, or exec requires interactive TTY — see note above)"
+              echo ""
+
+              echo "### Outbound connectivity to Anthropic (api.anthropic.com)"
+              timeout 20 az containerapp exec \
+                --name architect \
+                --resource-group rg-aos-staging \
+                --revision "$REVISION" \
+                --command "curl -sS -o /dev/null -w 'HTTP %{http_code} in %{time_total}s\n' --max-time 10 https://api.anthropic.com" 2>&1 \
+                || echo "  ⚠️  curl check did not complete — network issue, or exec requires interactive TTY"
+              echo ""
+
+              echo "### DNS resolution check"
+              timeout 20 az containerapp exec \
+                --name architect \
+                --resource-group rg-aos-staging \
+                --revision "$REVISION" \
+                --command "getent hosts api.anthropic.com" 2>&1 \
+                || echo "  ⚠️  DNS resolution failed or exec requires interactive TTY"
+              echo ""
+
+              echo "### mind.asisaga.com DNS check (known separately broken — confirming still true)"
+              timeout 20 az containerapp exec \
+                --name architect \
+                --resource-group rg-aos-staging \
+                --revision "$REVISION" \
+                --command "getent hosts mind.asisaga.com" 2>&1 \
+                || echo "  ⚠️  mind.asisaga.com does not resolve (expected — separate known issue, not blocking Remote Control)"
+              echo ""
+
+              echo "### Claude Code session/log artifacts"
+              timeout 20 az containerapp exec \
+                --name architect \
+                --resource-group rg-aos-staging \
+                --revision "$REVISION" \
+                --command "find /root/architect-claude-home -maxdepth 2 -type f -newer /root/architect-claude-home/.claude.json 2>/dev/null" 2>&1 \
+                || echo "  ⚠️  Could not list session artifacts, or exec requires interactive TTY"
+              echo ""
+
+              echo "### Persisted .claude.json content (confirm pre-seed state)"
+              timeout 20 az containerapp exec \
+                --name architect \
+                --resource-group rg-aos-staging \
+                --revision "$REVISION" \
+                --command "cat /root/architect-claude-home/.claude.json" 2>&1 \
+                || echo "  ⚠️  Could not read .claude.json, or exec requires interactive TTY"
+              echo ""
+
+              echo "NOTE: if every check above shows 'exec requires interactive"
+              echo "TTY', that confirms az containerapp exec cannot run"
+              echo "non-interactively from this runner even for single"
+              echo "commands. In that case these checks must be run manually"
+              echo "from Cloud Shell or a local terminal with:"
+              echo "  az containerapp exec --name architect --resource-group rg-aos-staging --command /bin/bash"
+              echo "and each command above run by hand inside that session."
+            fi
+          fi
+          echo ""
+
       - name: Console logs (entrypoint.sh output)
         run: |
           echo "## Console logs (last 300 lines)"
@@ -244,4 +352,12 @@ jobs:
           echo "  - If revision healthState is not 'Healthy': check console logs for where entrypoint.sh stalled"
           echo "  - If role checks show ❌: grant the missing role via Azure portal IAM, then re-run"
           echo "  - If secret hygiene shows ❌: re-set with printf '%s' \"value\" | gh secret set NAME --repo ASISaga/architect-agent"
-          echo "  - If Container App status is Running but Code tab shows no session: try claude login in the terminal first"
+          echo "  - If Container App status is Running but Code tab shows no session:"
+          echo "    check the Remote Control connectivity diagnostic section above."
+          echo "    If Claude Code process is alive (ps aux shows it) but the"
+          echo "    curl/DNS checks fail, that points to a networking issue"
+          echo "    preventing Remote Control from registering with Anthropic's"
+          echo "    relay, even though the local process itself is fine."
+          echo "    If the exec-based checks all report needing an interactive"
+          echo "    TTY, run them manually from Cloud Shell instead — this is"
+          echo "    a known limitation of az containerapp exec from CI runners."
