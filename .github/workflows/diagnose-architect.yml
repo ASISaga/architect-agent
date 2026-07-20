@@ -285,6 +285,18 @@ jobs:
               || echo "  ⚠️  .credentials.json not found on share"
             echo ""
 
+            echo "### remote-control-transcript.log content (script's captured stdout/stderr)"
+            az storage file download \
+              --account-name "${{ secrets.STORAGE_ACCOUNT_NAME }}" \
+              --account-key "$KEY" \
+              --share-name architect-home \
+              --path "architect-claude-home/remote-control-transcript.log" \
+              --dest /tmp/architect-diag/remote-control-transcript.log \
+              --output none 2>&1 \
+              && cat /tmp/architect-diag/remote-control-transcript.log \
+              || echo "  ⚠️  Could not download transcript (only exists after entrypoint.sh's script-transcript fix has run at least once)"
+            echo ""
+
             echo "### Any file modified in the last 4 hours (recent activity indicator)"
             az storage file list \
               --account-name "${{ secrets.STORAGE_ACCOUNT_NAME }}" \
