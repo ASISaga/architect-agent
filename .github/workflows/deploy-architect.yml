@@ -116,11 +116,11 @@ jobs:
           # only see files within aos-infra.
           FILES=(
             entrypoint.sh
-            repos.txt
             versions.env
             CLAUDE.md
             ARCHITECT-CONTEXT.md
             claude-settings.json
+            claude.json
           )
           for f in "${FILES[@]}"; do
             echo "Uploading $f"
