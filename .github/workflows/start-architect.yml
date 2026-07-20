@@ -4,9 +4,23 @@ name: Start Architect
 # before acting so it never errors on "already running" or "already
 # activated". Use this instead of manually running az commands from
 # Cloud Shell when you just want the container up.
+#
+# force_restart: use this after Deploy Architect if the container was
+# already running — dynamic files uploaded to the Azure Files share
+# only take effect on the NEXT boot of entrypoint.sh. An already-
+# running container keeps running on whatever it read at its last
+# boot, so a plain Start (which correctly no-ops when already running)
+# will not pick up the new files. Forcing a restart here re-runs
+# entrypoint.sh from scratch against the freshly uploaded files.
 
 on:
   workflow_dispatch:
+    inputs:
+      force_restart:
+        description: 'Force a restart even if already running (use after Deploy Architect to pick up freshly uploaded files)'
+        type: boolean
+        default: false
+        required: false
 
 permissions:
   id-token: write
@@ -75,13 +89,35 @@ jobs:
             --resource-group rg-aos-staging \
             --revision "${{ steps.revision.outputs.revision }}"
 
-      - name: Already running
-        if: steps.state.outputs.running == 'Running' || steps.state.outputs.running == 'RunningAtMaxScale'
+      - name: Force restart (already running, but force_restart requested)
+        if: |
+          (steps.state.outputs.running == 'Running' || steps.state.outputs.running == 'RunningAtMaxScale') &&
+          github.event.inputs.force_restart == 'true'
+        run: |
+          echo "Revision is already running, but force_restart was requested"
+          echo "Restarting to pick up freshly deployed files from the share"
+          az containerapp revision restart \
+            --name architect \
+            --resource-group rg-aos-staging \
+            --revision "${{ steps.revision.outputs.revision }}"
+
+      - name: Already running (no restart requested)
+        if: |
+          (steps.state.outputs.running == 'Running' || steps.state.outputs.running == 'RunningAtMaxScale') &&
+          github.event.inputs.force_restart != 'true'
         run: |
           echo "Revision is already running — nothing to do"
+          echo "If you just ran Deploy Architect and need the container to"
+          echo "pick up the new files, re-run this workflow with force_restart"
+          echo "set to true."
 
       - name: Poll until running (up to 2 minutes)
         run: |
+          # After a force restart, the container briefly reports a
+          # transitional state before settling — wait a beat before
+          # the first check so we don't read stale state from the
+          # instant before the restart took effect.
+          sleep 5
           for i in $(seq 1 24); do
             RUNNING=$(az containerapp revision show \
               --name architect \
@@ -103,6 +139,7 @@ jobs:
           echo "## Architect start requested" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Revision: ${{ steps.revision.outputs.revision }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Force restart requested: ${{ github.event.inputs.force_restart }}" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Connect via: Claude mobile app → Code tab" >> "$GITHUB_STEP_SUMMARY"
           echo "If first time: exec in and run \`claude login\`" >> "$GITHUB_STEP_SUMMARY"
