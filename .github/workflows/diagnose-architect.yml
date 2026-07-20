@@ -266,6 +266,32 @@ jobs:
               || echo "  ⚠️  Could not download or parse .claude.json"
             echo ""
 
+            echo "### remoteEnabled key — full parent object context"
+            echo "Found 'remoteEnabled: false' in the filtered grep above —"
+            echo "this is the likely actual root cause. This check finds"
+            echo "which parent object it belongs to, to see if it's"
+            echo "something we can override or a server-controlled flag."
+            python3 -c "
+import json
+with open('/tmp/architect-diag/claude.json') as f:
+    data = json.load(f)
+
+def find_remote_enabled(obj, path=''):
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            newpath = f'{path}.{k}' if path else k
+            if k == 'remoteEnabled':
+                print(f'{newpath} = {v}')
+                print(f'  Parent object: {json.dumps(obj, indent=2)}')
+            find_remote_enabled(v, newpath)
+    elif isinstance(obj, list):
+        for i, item in enumerate(obj):
+            find_remote_enabled(item, f'{path}[{i}]')
+
+find_remote_enabled(data)
+" 2>&1 || echo "  ⚠️  Could not parse claude.json with python3 (unexpected — python3 should be in this runner's environment)"
+            echo ""
+
             echo "### .last-update-result.json content"
             az storage file download \
               --account-name "${{ secrets.STORAGE_ACCOUNT_NAME }}" \
