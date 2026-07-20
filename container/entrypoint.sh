@@ -277,16 +277,7 @@ chown -h architect:architect /home/architect/.claude
 CLAUDE_JSON_PERSISTED="/root/architect-claude-home/.claude.json"
 if [ ! -f "$CLAUDE_JSON_PERSISTED" ]; then
   echo "Pre-seeding $CLAUDE_JSON_PERSISTED to skip onboarding wizard"
-  cat > "$CLAUDE_JSON_PERSISTED" << 'CLAUDEJSON'
-{
-  "hasCompletedOnboarding": true,
-  "projects": {
-    "/root": {
-      "hasTrustDialogAccepted": true
-    }
-  }
-}
-CLAUDEJSON
+  cp "$CONTAINER_DIR/claude.json" "$CLAUDE_JSON_PERSISTED"
   chown architect:architect "$CLAUDE_JSON_PERSISTED"
 else
   echo "Existing $CLAUDE_JSON_PERSISTED found — not overwriting (preserves real onboarding state)"
