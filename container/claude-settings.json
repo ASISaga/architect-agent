@@ -1,4 +1,5 @@
 {
+  "skipDangerousModePermissionPrompt": true,
   "remoteControl": {
     "autoStart": true
   },
