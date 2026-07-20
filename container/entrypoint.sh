@@ -277,13 +277,18 @@ chown -h architect:architect /home/architect/.claude
 CLAUDE_JSON_PERSISTED="/root/architect-claude-home/.claude.json"
 if [ ! -f "$CLAUDE_JSON_PERSISTED" ]; then
   echo "Pre-seeding $CLAUDE_JSON_PERSISTED to skip onboarding wizard"
-  cp "$CONTAINER_DIR/claude.json" "$CLAUDE_JSON_PERSISTED"
-  chown architect:architect "$CLAUDE_JSON_PERSISTED"
+  if [ -f "$CONTAINER_DIR/claude.json" ]; then
+    cp "$CONTAINER_DIR/claude.json" "$CLAUDE_JSON_PERSISTED"
+    chown architect:architect "$CLAUDE_JSON_PERSISTED"
+  else
+    echo "WARNING: $CONTAINER_DIR/claude.json not found — onboarding wizard will not be skipped this run"
+    echo "  (check that claude.json is committed to architect-agent and included in deploy-architect.yml's upload list)"
+  fi
 else
   echo "Existing $CLAUDE_JSON_PERSISTED found — not overwriting (preserves real onboarding state)"
 fi
-ln -sfn "$CLAUDE_JSON_PERSISTED" /home/architect/.claude.json
-chown -h architect:architect /home/architect/.claude.json
+ln -sfn "$CLAUDE_JSON_PERSISTED" /home/architect/.claude.json 2>/dev/null || true
+chown -h architect:architect /home/architect/.claude.json 2>/dev/null || true
 
 chown -R architect:architect /root/.claude 2>/dev/null || true
 
