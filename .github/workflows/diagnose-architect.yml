@@ -214,113 +214,89 @@ jobs:
             -o jsonc || echo "  ⚠️  Could not fetch deployment operation details"
           echo ""
 
-      - name: Remote Control connectivity diagnostic (in-container)
+      - name: Remote Control state check (via Azure Files share — no TTY needed)
         run: |
-          echo "## Remote Control connectivity diagnostic"
+          echo "## Remote Control state check"
           echo ""
-          echo "Diagnosed 2026-07-20: Claude Code's --remote-control process"
-          echo "can be genuinely alive (confirmed via ps aux) while the mobile"
-          echo "app's Code tab shows no session at all. Since the process"
-          echo "itself isn't crashing, the likely cause is somewhere between"
-          echo "the process and Anthropic's Remote Control relay — most"
-          echo "plausibly outbound network connectivity, DNS resolution, or"
-          echo "session registration. This section checks all three via a"
-          echo "one-shot exec into the running container."
+          echo "Diagnosed 2026-07-20: az containerapp exec requires a real TTY"
+          echo "for its WebSocket handshake — confirmed it fails with"
+          echo "'termios.error: Inappropriate ioctl for device' even for"
+          echo "single non-interactive --command invocations from GitHub"
+          echo "Actions runners. There is no workaround for that from CI."
+          echo ""
+          echo "This check reads the same information a different way —"
+          echo "directly from the Azure Files share via az storage file"
+          echo "download, which is a plain file operation with no TTY"
+          echo "requirement at all. This tells us what Claude Code has"
+          echo "written to its persisted home directory, without needing"
+          echo "to exec into the running container."
           echo ""
 
-          REVISION=$(az containerapp show \
-            --name architect \
+          mkdir -p /tmp/architect-diag
+          KEY=$(az storage account keys list \
+            --account-name "${{ secrets.STORAGE_ACCOUNT_NAME }}" \
             --resource-group rg-aos-staging \
-            --query properties.latestRevisionName -o tsv 2>/dev/null || true)
+            --query "[0].value" -o tsv 2>/dev/null || true)
 
-          if [ -z "$REVISION" ]; then
-            echo "  ⚠️  No revision found — skipping in-container checks"
+          if [ -z "$KEY" ]; then
+            echo "  ❌ Could not retrieve storage account key — skipping"
           else
-            RUNNING=$(az containerapp revision show \
-              --name architect \
-              --resource-group rg-aos-staging \
-              --revision "$REVISION" \
-              --query properties.runningState -o tsv 2>/dev/null || true)
+            echo "### Directory listing: architect-claude-home/"
+            az storage file list \
+              --account-name "${{ secrets.STORAGE_ACCOUNT_NAME }}" \
+              --account-key "$KEY" \
+              --share-name architect-home \
+              --path "architect-claude-home" \
+              -o table 2>&1 || echo "  ⚠️  Could not list directory (may not exist yet)"
+            echo ""
 
-            if [ "$RUNNING" != "Running" ] && [ "$RUNNING" != "RunningAtMaxScale" ]; then
-              echo "  ⚠️  Revision '$REVISION' is not currently running ($RUNNING)"
-              echo "     Start it first (Start Architect workflow), then re-run this diagnostic."
-            else
-              echo "  Revision '$REVISION' is running — attempting exec-based checks"
-              echo ""
+            echo "### .claude.json content"
+            az storage file download \
+              --account-name "${{ secrets.STORAGE_ACCOUNT_NAME }}" \
+              --account-key "$KEY" \
+              --share-name architect-home \
+              --path "architect-claude-home/.claude.json" \
+              --dest /tmp/architect-diag/claude.json \
+              --output none 2>&1 \
+              && cat /tmp/architect-diag/claude.json \
+              || echo "  ⚠️  Could not download .claude.json (may not exist)"
+            echo ""
 
-              # az containerapp exec requires an interactive TTY for its
-              # WebSocket handshake in most CLI versions, which GitHub
-              # Actions runners do not have. Rather than fight that
-              # constraint, this diagnostic runs each check as a discrete,
-              # non-interactive command via 'az containerapp exec --command',
-              # capturing stdout directly. If the CLI version in use still
-              # requires a TTY even for single commands, each check below
-              # will report that plainly rather than hanging the workflow.
+            echo "### .last-update-result.json content"
+            az storage file download \
+              --account-name "${{ secrets.STORAGE_ACCOUNT_NAME }}" \
+              --account-key "$KEY" \
+              --share-name architect-home \
+              --path "architect-claude-home/.last-update-result.json" \
+              --dest /tmp/architect-diag/last-update-result.json \
+              --output none 2>&1 \
+              && cat /tmp/architect-diag/last-update-result.json \
+              || echo "  ⚠️  Could not download .last-update-result.json (may not exist)"
+            echo ""
 
-              echo "### Claude Code process check"
-              timeout 20 az containerapp exec \
-                --name architect \
-                --resource-group rg-aos-staging \
-                --revision "$REVISION" \
-                --command "ps aux" 2>&1 | grep -i claude || echo "  (no claude process found, or exec requires interactive TTY — see note above)"
-              echo ""
+            echo "### .credentials.json existence check (not printing contents — sensitive)"
+            az storage file show \
+              --account-name "${{ secrets.STORAGE_ACCOUNT_NAME }}" \
+              --account-key "$KEY" \
+              --share-name architect-home \
+              --path "architect-claude-home/.credentials.json" \
+              --query "{name:name, lastModified:properties.lastModified, contentLength:properties.contentLength}" \
+              -o jsonc 2>&1 \
+              || echo "  ⚠️  .credentials.json not found on share"
+            echo ""
 
-              echo "### Outbound connectivity to Anthropic (api.anthropic.com)"
-              timeout 20 az containerapp exec \
-                --name architect \
-                --resource-group rg-aos-staging \
-                --revision "$REVISION" \
-                --command "curl -sS -o /dev/null -w 'HTTP %{http_code} in %{time_total}s\n' --max-time 10 https://api.anthropic.com" 2>&1 \
-                || echo "  ⚠️  curl check did not complete — network issue, or exec requires interactive TTY"
-              echo ""
+            echo "### Any file modified in the last 4 hours (recent activity indicator)"
+            az storage file list \
+              --account-name "${{ secrets.STORAGE_ACCOUNT_NAME }}" \
+              --account-key "$KEY" \
+              --share-name architect-home \
+              --path "architect-claude-home" \
+              --query "[?properties.lastModified >= '$(date -u -d '4 hours ago' +%Y-%m-%dT%H:%M:%SZ)'].{name:name, lastModified:properties.lastModified}" \
+              -o table 2>&1 || echo "  ⚠️  Could not check recent modifications"
+            echo ""
 
-              echo "### DNS resolution check"
-              timeout 20 az containerapp exec \
-                --name architect \
-                --resource-group rg-aos-staging \
-                --revision "$REVISION" \
-                --command "getent hosts api.anthropic.com" 2>&1 \
-                || echo "  ⚠️  DNS resolution failed or exec requires interactive TTY"
-              echo ""
-
-              echo "### mind.asisaga.com DNS check (known separately broken — confirming still true)"
-              timeout 20 az containerapp exec \
-                --name architect \
-                --resource-group rg-aos-staging \
-                --revision "$REVISION" \
-                --command "getent hosts mind.asisaga.com" 2>&1 \
-                || echo "  ⚠️  mind.asisaga.com does not resolve (expected — separate known issue, not blocking Remote Control)"
-              echo ""
-
-              echo "### Claude Code session/log artifacts"
-              timeout 20 az containerapp exec \
-                --name architect \
-                --resource-group rg-aos-staging \
-                --revision "$REVISION" \
-                --command "find /root/architect-claude-home -maxdepth 2 -type f -newer /root/architect-claude-home/.claude.json 2>/dev/null" 2>&1 \
-                || echo "  ⚠️  Could not list session artifacts, or exec requires interactive TTY"
-              echo ""
-
-              echo "### Persisted .claude.json content (confirm pre-seed state)"
-              timeout 20 az containerapp exec \
-                --name architect \
-                --resource-group rg-aos-staging \
-                --revision "$REVISION" \
-                --command "cat /root/architect-claude-home/.claude.json" 2>&1 \
-                || echo "  ⚠️  Could not read .claude.json, or exec requires interactive TTY"
-              echo ""
-
-              echo "NOTE: if every check above shows 'exec requires interactive"
-              echo "TTY', that confirms az containerapp exec cannot run"
-              echo "non-interactively from this runner even for single"
-              echo "commands. In that case these checks must be run manually"
-              echo "from Cloud Shell or a local terminal with:"
-              echo "  az containerapp exec --name architect --resource-group rg-aos-staging --command /bin/bash"
-              echo "and each command above run by hand inside that session."
-            fi
+            rm -rf /tmp/architect-diag
           fi
-          echo ""
 
       - name: Console logs (entrypoint.sh output)
         run: |
@@ -353,11 +329,12 @@ jobs:
           echo "  - If role checks show ❌: grant the missing role via Azure portal IAM, then re-run"
           echo "  - If secret hygiene shows ❌: re-set with printf '%s' \"value\" | gh secret set NAME --repo ASISaga/architect-agent"
           echo "  - If Container App status is Running but Code tab shows no session:"
-          echo "    check the Remote Control connectivity diagnostic section above."
-          echo "    If Claude Code process is alive (ps aux shows it) but the"
-          echo "    curl/DNS checks fail, that points to a networking issue"
-          echo "    preventing Remote Control from registering with Anthropic's"
-          echo "    relay, even though the local process itself is fine."
-          echo "    If the exec-based checks all report needing an interactive"
-          echo "    TTY, run them manually from Cloud Shell instead — this is"
-          echo "    a known limitation of az containerapp exec from CI runners."
+          echo "    check the Remote Control state check section above (reads directly"
+          echo "    from the Azure Files share, no TTY needed). Compare .claude.json"
+          echo "    content against what was pre-seeded in container/claude.json —"
+          echo "    if Claude Code has added session-related keys, that confirms it"
+          echo "    got further than we think. If it's unchanged from the pre-seed,"
+          echo "    that suggests Remote Control never wrote any session state at all."
+          echo "  - For checks that genuinely require a live process (ps aux, curl,"
+          echo "    getent), those still need a real TTY — run manually via:"
+          echo "    az containerapp exec --name architect --resource-group rg-aos-staging --command /bin/bash"
