@@ -356,36 +356,51 @@ ls -la "$CLAUDE_BIN" 2>&1 || echo "DEBUG: CLAUDE_BIN path does not exist or is n
 echo "DEBUG: architect user PATH: $(runuser -u architect -- printenv PATH 2>&1)"
 echo "DEBUG: architect user which claude: $(runuser -u architect -- which claude 2>&1)"
 
-if command -v script &>/dev/null; then
-  echo "Allocating pseudo-TTY via 'script' for Claude Code Remote Control"
-  # Transcript written to the persistent share (not /dev/null) so we
-  # can inspect exactly what Remote Control's session/bridge
-  # initialization outputs — this was previously discarded, hiding
-  # the actual cause of sessions not registering with Anthropic's
-  # backend despite the process running and authenticating normally.
-  CLAUDE_TRANSCRIPT="/root/architect-claude-home/remote-control-transcript.log"
-  runuser -u architect -- script -qc \
-    "$CLAUDE_BIN --dangerously-skip-permissions --remote-control" \
-    "$CLAUDE_TRANSCRIPT" &
-else
-  echo "WARNING: 'script' not found — launching without a PTY."
-  echo "  Remote Control may misbehave (see 2026-07-19 diagnosis above)."
-  runuser -u architect -- "$CLAUDE_BIN" --dangerously-skip-permissions --remote-control &
-fi
+# ---------------------------------------------------------------------
+# PTY allocation via Python's pty.spawn().
+#
+# Diagnosed 2026-07-20: 'script' creates a genuine PTY, but Claude
+# Code's --remote-control produced a completely empty transcript when
+# run through it (confirmed via remote-control-transcript.log showing
+# 0 bytes across multiple restarts). Hypothesis: script's extra
+# intermediate 'sh -c' layer between the PTY and the target process
+# is what differs — pty.spawn() execs the target directly onto the
+# PTY slave with no intermediate shell.
+#
+# CONFIRMED WORKING 2026-07-20: manually tested pty.spawn() live in an
+# exec session — Claude Code's REPL rendered correctly (banner, model
+# info, working directory), onboarding wizard was correctly skipped
+# (pre-seeded .claude.json took effect), and the bypass-permissions
+# footer appeared exactly as in a genuine interactive session. This is
+# the confirmed fix for the REPL-rendering half of the problem.
+#
+# python3 requires no image rebuild — already present in the deployed
+# image (confirmed via `which python3` → /usr/bin/python3), likely
+# pulled in as a dependency of another package.
+#
+# Remaining open question: whether Remote Control's session
+# registration with Anthropic's backend succeeds under this PTY —
+# this is being verified separately via the diagnose-architect
+# workflow's Remote Control state check.
+# ---------------------------------------------------------------------
+echo "Allocating pseudo-TTY via Python pty.spawn() for Claude Code Remote Control"
+runuser -u architect -- python3 -c "
+import pty
+pty.spawn(['$CLAUDE_BIN', '--dangerously-skip-permissions', '--remote-control'])
+" &
 
 CLAUDE_PID=$!
-echo "Claude Code started as 'architect' user (PID $CLAUDE_PID)"
-set +e  # disable exit-on-error so a non-zero Claude Code exit doesn't kill this script
+echo "Claude Code (pty.spawn) started as 'architect' user (PID $CLAUDE_PID)"
+set +e  # disable exit-on-error so a non-zero exit doesn't kill this script
 wait $CLAUDE_PID
 CLAUDE_EXIT=$?
 set -e  # re-enable for the rest of the script
 echo "Claude Code exited (PID $CLAUDE_PID) with code $CLAUDE_EXIT"
 
-# If Claude Code exited (for any reason — crash, --print fallback, etc.),
-# don't let the container exit too. Idle instead so it stays exec-able
-# for diagnosis rather than crash-looping indefinitely.
+# If Claude Code exited (for any reason), don't let the container exit
+# too. Idle instead so it stays exec-able for diagnosis.
 echo ""
-echo "=== IDLING — Claude Code exited unexpectedly (code $CLAUDE_EXIT) ==="
+echo "=== IDLING — Claude Code exited (code $CLAUDE_EXIT) ==="
 echo "Container will stay alive for diagnosis via:"
 echo "  az containerapp exec --name architect --resource-group rg-aos-staging --command /bin/bash"
 echo ""
