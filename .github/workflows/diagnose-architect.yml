@@ -224,12 +224,14 @@ jobs:
           echo "single non-interactive --command invocations from GitHub"
           echo "Actions runners. There is no workaround for that from CI."
           echo ""
-          echo "This check reads the same information a different way —"
-          echo "directly from the Azure Files share via az storage file"
-          echo "download, which is a plain file operation with no TTY"
-          echo "requirement at all. This tells us what Claude Code has"
-          echo "written to its persisted home directory, without needing"
-          echo "to exec into the running container."
+          echo "entrypoint.sh now uses Python's pty.spawn() (confirmed"
+          echo "working manually — Claude Code's REPL renders correctly,"
+          echo "onboarding is skipped) instead of 'script' (confirmed"
+          echo "non-functional — produced empty transcripts). The remaining"
+          echo "open question is whether Remote Control's session"
+          echo "registration with Anthropic's backend succeeds under this"
+          echo "PTY. This check reads persisted state from the Azure Files"
+          echo "share directly — no TTY needed — to look for evidence."
           echo ""
 
           mkdir -p /tmp/architect-diag
@@ -250,7 +252,9 @@ jobs:
               -o table 2>&1 || echo "  ⚠️  Could not list directory (may not exist yet)"
             echo ""
 
-            echo "### .claude.json content"
+            echo "### .claude.json — session/remote/bridge related keys only"
+            echo "(full file is large — this filters to what matters for"
+            echo " diagnosing Remote Control specifically)"
             az storage file download \
               --account-name "${{ secrets.STORAGE_ACCOUNT_NAME }}" \
               --account-key "$KEY" \
@@ -258,8 +262,8 @@ jobs:
               --path "architect-claude-home/.claude.json" \
               --dest /tmp/architect-diag/claude.json \
               --output none 2>&1 \
-              && cat /tmp/architect-diag/claude.json \
-              || echo "  ⚠️  Could not download .claude.json (may not exist)"
+              && grep -oE '"[^"]*(session|remote|bridge|firstStartTime|lastGracefulShutdown|numStartups|machineID|userID)[^"]*"[[:space:]]*:[[:space:]]*[^,}]*' /tmp/architect-diag/claude.json \
+              || echo "  ⚠️  Could not download or parse .claude.json"
             echo ""
 
             echo "### .last-update-result.json content"
@@ -283,18 +287,6 @@ jobs:
               --query "{name:name, lastModified:properties.lastModified, contentLength:properties.contentLength}" \
               -o jsonc 2>&1 \
               || echo "  ⚠️  .credentials.json not found on share"
-            echo ""
-
-            echo "### remote-control-transcript.log content (script's captured stdout/stderr)"
-            az storage file download \
-              --account-name "${{ secrets.STORAGE_ACCOUNT_NAME }}" \
-              --account-key "$KEY" \
-              --share-name architect-home \
-              --path "architect-claude-home/remote-control-transcript.log" \
-              --dest /tmp/architect-diag/remote-control-transcript.log \
-              --output none 2>&1 \
-              && cat /tmp/architect-diag/remote-control-transcript.log \
-              || echo "  ⚠️  Could not download transcript (only exists after entrypoint.sh's script-transcript fix has run at least once)"
             echo ""
 
             echo "### Any file modified in the last 4 hours (recent activity indicator)"
