@@ -21,6 +21,11 @@ on:
         type: boolean
         default: false
         required: false
+      overwrite_claude_json:
+        description: 'Delete the persisted .claude.json on the share before restarting (use if onboarding keeps reappearing — clears stale/partial state so entrypoint.sh writes the correct pre-seeded file fresh)'
+        type: boolean
+        default: false
+        required: false
 
 permissions:
   id-token: write
@@ -36,6 +41,25 @@ jobs:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Overwrite persisted .claude.json (if requested)
+        if: github.event.inputs.overwrite_claude_json == 'true'
+        run: |
+          echo "Deleting persisted .claude.json from the share — entrypoint.sh"
+          echo "will write a fresh, correctly pre-seeded copy on next boot."
+          # This lives at architect-claude-home/.claude.json on the share,
+          # not container/claude.json (that's the source template we
+          # deploy FROM — this is the runtime copy entrypoint.sh writes TO
+          # the first time it runs, then never touches again unless it's
+          # missing). Deleting it here is the safe way to clear stale or
+          # partial state without needing to exec into the container.
+          az storage file delete \
+            --account-name "${{ secrets.STORAGE_ACCOUNT_NAME }}" \
+            --share-name architect-home \
+            --path "architect-claude-home/.claude.json" \
+            --auth-mode login \
+            --enable-file-backup-request-intent \
+            2>&1 || echo "  (file did not exist — nothing to delete, which is fine)"
 
       - name: Find latest revision
         id: revision
@@ -133,6 +157,25 @@ jobs:
           done
           echo "::warning::Did not reach Running state within 2 minutes — check diagnose-architect workflow"
 
+      - name: Pull console logs (bootstrap output)
+        if: always()
+        run: |
+          # Give entrypoint.sh time to actually run through the full
+          # bootstrap sequence before pulling logs, so we capture the
+          # real outcome rather than an empty or mid-boot snapshot.
+          # This replaces manually running az containerapp logs show
+          # from Cloud Shell and screenshotting the result.
+          echo "Waiting 20s for bootstrap to progress before pulling logs..."
+          sleep 20
+          echo ""
+          echo "=== Console logs (last 80 lines) ==="
+          az containerapp logs show \
+            --name architect \
+            --resource-group rg-aos-staging \
+            --type console \
+            --tail 80 \
+            --format text || echo "  (logs not available yet — may need another run to pull them once bootstrap completes)"
+
       - name: Summary
         if: always()
         run: |
@@ -140,6 +183,9 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Revision: ${{ steps.revision.outputs.revision }}" >> "$GITHUB_STEP_SUMMARY"
           echo "Force restart requested: ${{ github.event.inputs.force_restart }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Overwrite .claude.json requested: ${{ github.event.inputs.overwrite_claude_json }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Console logs from this run are in the **Pull console logs** step above." >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "Connect via: Claude mobile app → Code tab" >> "$GITHUB_STEP_SUMMARY"
           echo "If first time: exec in and run \`claude login\`" >> "$GITHUB_STEP_SUMMARY"
