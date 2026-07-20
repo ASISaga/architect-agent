@@ -254,6 +254,46 @@ rm -rf /home/architect/.claude 2>/dev/null || true
 ln -sfn /root/architect-claude-home /home/architect/.claude
 chown -h architect:architect /home/architect/.claude
 
+# ---------------------------------------------------------------------
+# Pre-seed ~/.claude.json (note: NOT ~/.claude/settings.json — a
+# different file) to skip the interactive onboarding wizard entirely.
+# Documented mechanism (Anthropic ecosystem headless-CC guidance):
+# setting hasCompletedOnboarding=true skips the theme picker and
+# welcome screen; pre-accepting hasTrustDialogAccepted for the
+# workspace path skips the trust dialog.
+#
+# NOTE: the bypass-permissions safety warning CANNOT be pre-seeded —
+# Claude Code always shows it when --dangerously-skip-permissions is
+# used, by design. That prompt still requires one manual interactive
+# pass per container lifetime (or per persistent-share reset).
+#
+# This file lives at /home/architect/.claude.json — the user's home
+# directory root, not inside .claude/. Since /home/architect/.claude
+# is now symlinked onto the persistent share above, but .claude.json
+# itself sits one level up (directly in $HOME), it needs its own
+# persistence handling: write it directly into the persistent
+# architect-claude-home directory and symlink it into place too.
+# ---------------------------------------------------------------------
+CLAUDE_JSON_PERSISTED="/root/architect-claude-home/.claude.json"
+if [ ! -f "$CLAUDE_JSON_PERSISTED" ]; then
+  echo "Pre-seeding $CLAUDE_JSON_PERSISTED to skip onboarding wizard"
+  cat > "$CLAUDE_JSON_PERSISTED" << 'CLAUDEJSON'
+{
+  "hasCompletedOnboarding": true,
+  "projects": {
+    "/root": {
+      "hasTrustDialogAccepted": true
+    }
+  }
+}
+CLAUDEJSON
+  chown architect:architect "$CLAUDE_JSON_PERSISTED"
+else
+  echo "Existing $CLAUDE_JSON_PERSISTED found — not overwriting (preserves real onboarding state)"
+fi
+ln -sfn "$CLAUDE_JSON_PERSISTED" /home/architect/.claude.json
+chown -h architect:architect /home/architect/.claude.json
+
 chown -R architect:architect /root/.claude 2>/dev/null || true
 
 if [ ! -f /root/.claude/.credentials.json ]; then
