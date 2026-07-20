@@ -22,7 +22,10 @@ fi
 
 # ---------------------------------------------------------------------
 # 2. Bootstrap — clone architect-agent if not present
-#    This is the one hardcoded repo. All other config flows from it.
+#    This is the one hardcoded repo, used for ecosystem repo discovery
+#    (.gitmodules) and as the working copy the Architect edits during
+#    a session. It is NOT the delivery path for entrypoint.sh's own
+#    config files — see step 3 below.
 # ---------------------------------------------------------------------
 mkdir -p ~/ASISaga
 cd ~/ASISaga
@@ -34,16 +37,24 @@ else
   echo "architect-agent: present"
 fi
 
-CONTAINER_DIR=~/ASISaga/architect-agent/container
-
 # ---------------------------------------------------------------------
-# 3. Runtime configuration — always read from architect-agent clone,
-#    never baked into the image
+# 3. Runtime configuration — read directly from the Azure Files share
+#    root (/root), where deploy-architect.yml uploads these files via
+#    `az storage file upload`. Never baked into the image.
+#
+# CRITICAL FIX — diagnosed 2026-07-20: these were previously read from
+# the architect-agent git clone ($CONTAINER_DIR), which is a SEPARATE
+# delivery path from the direct-upload-to-share mechanism. The clone
+# only updates when explicitly re-cloned, and requires working GitHub
+# auth to do so. Meanwhile deploy-architect.yml already uploads these
+# exact files straight to /root/ on every deploy, independent of git
+# entirely. Reading from /root/ directly means these files are always
+# current as of the last deploy, with no dependency on git auth at all.
 # ---------------------------------------------------------------------
 mkdir -p ~/.claude
-cp "$CONTAINER_DIR/claude-settings.json" ~/.claude/settings.json
-cp "$CONTAINER_DIR/CLAUDE.md" ~/CLAUDE.md
-cp "$CONTAINER_DIR/ARCHITECT-CONTEXT.md" ~/ARCHITECT-CONTEXT.md
+cp ~/claude-settings.json ~/.claude/settings.json
+# CLAUDE.md and ARCHITECT-CONTEXT.md already land at ~/ (share root)
+# directly from the upload — no copy needed, they're already there.
 
 # ---------------------------------------------------------------------
 # 4. Clone / update ecosystem repos from ASISaga/.gitmodules
@@ -137,7 +148,7 @@ echo ""
 echo "=== Version report ==="
 
 # shellcheck source=/dev/null
-source "$CONTAINER_DIR/versions.env"
+source ~/versions.env
 
 # Claude Code
 CLAUDE_INSTALLED="$(claude --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -1 || echo 'unknown')"
@@ -277,12 +288,12 @@ chown -h architect:architect /home/architect/.claude
 CLAUDE_JSON_PERSISTED="/root/architect-claude-home/.claude.json"
 if [ ! -f "$CLAUDE_JSON_PERSISTED" ]; then
   echo "Pre-seeding $CLAUDE_JSON_PERSISTED to skip onboarding wizard"
-  if [ -f "$CONTAINER_DIR/claude.json" ]; then
-    cp "$CONTAINER_DIR/claude.json" "$CLAUDE_JSON_PERSISTED"
+  if [ -f ~/claude.json ]; then
+    cp ~/claude.json "$CLAUDE_JSON_PERSISTED"
     chown architect:architect "$CLAUDE_JSON_PERSISTED"
   else
-    echo "WARNING: $CONTAINER_DIR/claude.json not found — onboarding wizard will not be skipped this run"
-    echo "  (check that claude.json is committed to architect-agent and included in deploy-architect.yml's upload list)"
+    echo "WARNING: ~/claude.json not found on the share — onboarding wizard will not be skipped this run"
+    echo "  (check that claude.json is included in deploy-architect.yml's upload list and Deploy Architect has been run)"
   fi
 else
   echo "Existing $CLAUDE_JSON_PERSISTED found — not overwriting (preserves real onboarding state)"
