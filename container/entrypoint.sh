@@ -358,9 +358,15 @@ echo "DEBUG: architect user which claude: $(runuser -u architect -- which claude
 
 if command -v script &>/dev/null; then
   echo "Allocating pseudo-TTY via 'script' for Claude Code Remote Control"
+  # Transcript written to the persistent share (not /dev/null) so we
+  # can inspect exactly what Remote Control's session/bridge
+  # initialization outputs — this was previously discarded, hiding
+  # the actual cause of sessions not registering with Anthropic's
+  # backend despite the process running and authenticating normally.
+  CLAUDE_TRANSCRIPT="/root/architect-claude-home/remote-control-transcript.log"
   runuser -u architect -- script -qc \
     "$CLAUDE_BIN --dangerously-skip-permissions --remote-control" \
-    /dev/null &
+    "$CLAUDE_TRANSCRIPT" &
 else
   echo "WARNING: 'script' not found — launching without a PTY."
   echo "  Remote Control may misbehave (see 2026-07-19 diagnosis above)."
